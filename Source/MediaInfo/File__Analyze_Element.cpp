@@ -883,7 +883,7 @@ int element_details::Element_Node::Print_Tree(print_struc& s)
     std::string spaces;
 
     if (NoShow)
-        return 0;
+        goto print_children;
 
     if (IsCat)
         return Print_Tree_Cat(s);
