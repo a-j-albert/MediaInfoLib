@@ -33,6 +33,7 @@ lib@MediaInfoLib_LibName@_la_SOURCES = \
                        ../../../Source/MediaInfo/Archive/File_Elf.cpp \
                        ../../../Source/MediaInfo/Archive/File_Gzip.cpp \
                        ../../../Source/MediaInfo/Archive/File_Iso9660.cpp \
+                       ../../../Source/MediaInfo/Archive/File_MachO.cpp \
                        ../../../Source/MediaInfo/Archive/File_Mz.cpp \
                        ../../../Source/MediaInfo/Archive/File_Rar.cpp \
                        ../../../Source/MediaInfo/Archive/File_Tar.cpp \
@@ -45,24 +46,32 @@ lib@MediaInfoLib_LibName@_la_SOURCES = \
                        ../../../Source/MediaInfo/Audio/File_Aac_Others.cpp \
                        ../../../Source/MediaInfo/Audio/File_Ac3.cpp \
                        ../../../Source/MediaInfo/Audio/File_Ac4.cpp \
+                       ../../../Source/MediaInfo/Audio/File_Adm.cpp \
                        ../../../Source/MediaInfo/Audio/File_Adpcm.cpp \
                        ../../../Source/MediaInfo/Audio/File_Als.cpp \
                        ../../../Source/MediaInfo/Audio/File_Amr.cpp \
                        ../../../Source/MediaInfo/Audio/File_Amv.cpp \
                        ../../../Source/MediaInfo/Audio/File_Ape.cpp \
+                       ../../../Source/MediaInfo/Audio/File_Aptx100.cpp \
                        ../../../Source/MediaInfo/Audio/File_Au.cpp \
                        ../../../Source/MediaInfo/Audio/File_Caf.cpp \
                        ../../../Source/MediaInfo/Audio/File_Celt.cpp \
                        ../../../Source/MediaInfo/Audio/File_ChannelGrouping.cpp \
                        ../../../Source/MediaInfo/Audio/File_ChannelSplitting.cpp \
+                       ../../../Source/MediaInfo/Audio/File_Dat.cpp \
                        ../../../Source/MediaInfo/Audio/File_Dsdiff.cpp \
                        ../../../Source/MediaInfo/Audio/File_Dsf.cpp \
                        ../../../Source/MediaInfo/Audio/File_Dts.cpp \
+                       ../../../Source/MediaInfo/Audio/File_DtsUhd.cpp \
+                       ../../../Source/MediaInfo/Audio/File_DolbyAudioMetadata.cpp \
                        ../../../Source/MediaInfo/Audio/File_DolbyE.cpp \
                        ../../../Source/MediaInfo/Audio/File_ExtendedModule.cpp \
                        ../../../Source/MediaInfo/Audio/File_Flac.cpp \
+                       ../../../Source/MediaInfo/Audio/File_Iamf.cpp \
+                       ../../../Source/MediaInfo/Audio/File_Iab.cpp \
                        ../../../Source/MediaInfo/Audio/File_ImpulseTracker.cpp \
                        ../../../Source/MediaInfo/Audio/File_La.cpp \
+                       ../../../Source/MediaInfo/Audio/File_Mga.cpp \
                        ../../../Source/MediaInfo/Audio/File_Midi.cpp \
                        ../../../Source/MediaInfo/Audio/File_Module.cpp \
                        ../../../Source/MediaInfo/Audio/File_Mpc.cpp \
@@ -97,6 +106,7 @@ lib@MediaInfoLib_LibName@_la_SOURCES = \
                        ../../../Source/MediaInfo/Export/Export_PBCore2.cpp \
                        ../../../Source/MediaInfo/Export/Export_reVTMD.cpp \
                        ../../../Source/MediaInfo/Export/Export_Niso.cpp \
+                       ../../../Source/MediaInfo/Export/Export_Graph.cpp \
                        ../../../Source/MediaInfo/Image/File_ArriRaw.cpp \
                        ../../../Source/MediaInfo/Image/File_Bmp.cpp \
                        ../../../Source/MediaInfo/Image/File_Bpg.cpp \
@@ -112,6 +122,7 @@ lib@MediaInfoLib_LibName@_la_SOURCES = \
                        ../../../Source/MediaInfo/Image/File_Rle.cpp \
                        ../../../Source/MediaInfo/Image/File_Tiff.cpp \
                        ../../../Source/MediaInfo/Image/File_Tga.cpp \
+                       ../../../Source/MediaInfo/Image/File_WebP.cpp \
                        ../../../Source/MediaInfo/Multiple/File__ReferenceFilesHelper.cpp \
                        ../../../Source/MediaInfo/Multiple/File__ReferenceFilesHelper_Resource.cpp \
                        ../../../Source/MediaInfo/Multiple/File__ReferenceFilesHelper_Sequence.cpp \
@@ -150,6 +161,7 @@ lib@MediaInfoLib_LibName@_la_SOURCES = \
                        ../../../Source/MediaInfo/Multiple/File_MpegTs.cpp \
                        ../../../Source/MediaInfo/Multiple/File_MpegTs_Duplicate.cpp \
                        ../../../Source/MediaInfo/Multiple/File_Mxf.cpp \
+                       ../../../Source/MediaInfo/Multiple/File_Nsv.cpp \
                        ../../../Source/MediaInfo/Multiple/File_Nut.cpp \
                        ../../../Source/MediaInfo/Multiple/File_Ogg.cpp \
                        ../../../Source/MediaInfo/Multiple/File_Ogg_SubElement.cpp \
@@ -174,11 +186,16 @@ lib@MediaInfoLib_LibName@_la_SOURCES = \
                        ../../../Source/MediaInfo/Reader/Reader_libmms.cpp \
                        ../../../Source/MediaInfo/Tag/File__Tags.cpp \
                        ../../../Source/MediaInfo/Tag/File_ApeTag.cpp \
+                       ../../../Source/MediaInfo/Tag/File_C2pa.cpp \
+                       ../../../Source/MediaInfo/Tag/File_Exif.cpp \
+                       ../../../Source/MediaInfo/Tag/File_Icc.cpp \
                        ../../../Source/MediaInfo/Tag/File_Id3.cpp \
                        ../../../Source/MediaInfo/Tag/File_Id3v2.cpp \
+                       ../../../Source/MediaInfo/Tag/File_Iim.cpp \
                        ../../../Source/MediaInfo/Tag/File_Lyrics3.cpp \
                        ../../../Source/MediaInfo/Tag/File_Lyrics3v2.cpp \
                        ../../../Source/MediaInfo/Tag/File_PropertyList.cpp \
+                       ../../../Source/MediaInfo/Tag/File_SphericalVideo.cpp \
                        ../../../Source/MediaInfo/Tag/File_VorbisCom.cpp \
                        ../../../Source/MediaInfo/Tag/File_Xmp.cpp \
                        ../../../Source/MediaInfo/Text/File_Cdp.cpp \
@@ -191,6 +208,7 @@ lib@MediaInfoLib_LibName@_la_SOURCES = \
                        ../../../Source/MediaInfo/Text/File_Eia708.cpp \
                        ../../../Source/MediaInfo/Text/File_N19.cpp \
                        ../../../Source/MediaInfo/Text/File_OtherText.cpp \
+                       ../../../Source/MediaInfo/Text/File_Pac.cpp \
                        ../../../Source/MediaInfo/Text/File_Pdf.cpp \
                        ../../../Source/MediaInfo/Text/File_Pgs.cpp \
                        ../../../Source/MediaInfo/Text/File_Scc.cpp \
@@ -206,6 +224,7 @@ lib@MediaInfoLib_LibName@_la_SOURCES = \
                        ../../../Source/MediaInfo/Video/File_Avc.cpp \
                        ../../../Source/MediaInfo/Video/File_Avc_Duplicate.cpp \
                        ../../../Source/MediaInfo/Video/File_AvsV.cpp \
+                       ../../../Source/MediaInfo/Video/File_Avs3V.cpp \
                        ../../../Source/MediaInfo/Video/File_Canopus.cpp \
                        ../../../Source/MediaInfo/Video/File_CineForm.cpp \
                        ../../../Source/MediaInfo/Video/File_Dirac.cpp \
@@ -215,6 +234,7 @@ lib@MediaInfoLib_LibName@_la_SOURCES = \
                        ../../../Source/MediaInfo/Video/File_Fraps.cpp \
                        ../../../Source/MediaInfo/Video/File_Lagarith.cpp \
                        ../../../Source/MediaInfo/Video/File_H263.cpp \
+                       ../../../Source/MediaInfo/Video/File_HdrVividMetadata.cpp \
                        ../../../Source/MediaInfo/Video/File_Hevc.cpp \
                        ../../../Source/MediaInfo/Video/File_HuffYuv.cpp \
                        ../../../Source/MediaInfo/Video/File_Mpeg4v.cpp \
@@ -224,9 +244,13 @@ lib@MediaInfoLib_LibName@_la_SOURCES = \
                        ../../../Source/MediaInfo/Video/File_Vc1.cpp \
                        ../../../Source/MediaInfo/Video/File_Vc3.cpp \
                        ../../../Source/MediaInfo/Video/File_Vp8.cpp \
+                       ../../../Source/MediaInfo/Video/File_Vp9.cpp \
+                       ../../../Source/MediaInfo/Video/File_Vvc.cpp \
                        ../../../Source/MediaInfo/Video/File_Y4m.cpp \
                        ../../../Source/MediaInfo/XmlUtils.cpp \
-                       ../../../Source/MediaInfo/OutputHelpers.cpp
+                       ../../../Source/MediaInfo/OutputHelpers.cpp \
+                       ../../../Source/MediaInfo/ExternalCommandHelpers.cpp \
+                       ../../../Source/ThirdParty/tfsxml/tfsxml.c
 
 @MediaInfoLib_LibName@includedir = $(includedir)/MediaInfo
 @MediaInfoLib_LibName@include_HEADERS = \
@@ -249,6 +273,7 @@ endif
 if COMPILE_AES
 lib@MediaInfoLib_LibName@_la_SOURCES += \
                        ../../../Source/ThirdParty/aes-gladman/aes_modes.c \
+                       ../../../Source/ThirdParty/aes-gladman/aes_ni.c \
                        ../../../Source/ThirdParty/aes-gladman/aescrypt.c \
                        ../../../Source/ThirdParty/aes-gladman/aeskey.c \
                        ../../../Source/ThirdParty/aes-gladman/aestab.c
@@ -284,6 +309,7 @@ lib@MediaInfoLib_LibName@_la_LDFLAGS     = -no-undefined -version-info 0:0:0
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = libmediainfo.pc
 
+AM_CXXFLAGS = -std=c++11
 AM_CPPFLAGS = -I../../../Source -I../../../../ZenLib/Source
 
 TESTS_DIR = test

@@ -55,6 +55,8 @@ namespace MediaInfoLib
 // Constants
 //***************************************************************************
 
+extern std::string Id3v2_PictureType(int8u Type);
+
 static const char* Wm_CodecList_Kind(int32u Kind)
 {
     switch (Kind)
@@ -265,7 +267,10 @@ void File_Wm::Header_FileProperties()
     //Filling
     if (MaximumBitRate)
         Fill(Stream_General, 0, General_OverallBitRate_Maximum, MaximumBitRate);
-    Fill(Stream_General, 0, General_Encoded_Date, Ztring().Date_From_Milliseconds_1601(CreationDate/10000));
+    Ztring Encoded_Date_New=Ztring().Date_From_Seconds_1601(CreationDate/10000000);
+    const Ztring& Encoded_Date_Old=Retrieve_Const(Stream_General, 0, General_Encoded_Date);
+    if (Encoded_Date_Old.empty() || Encoded_Date_New!=Encoded_Date_Old)
+        Fill(Stream_General, 0, General_Encoded_Date, Encoded_Date_New);
     if (PlayDuration/1000>Preroll)
         Fill(Stream_General, 0, General_Duration, PlayDuration/10000-Preroll);
     FileProperties_Preroll=(int32u)(Preroll);
@@ -1108,6 +1113,31 @@ void File_Wm::Header_ExtendedContentDescription()
             case 0x00 : Get_UTF16L(Value_Length, Value,         "Value"); break;
             case 0x01 :
                         if (Name==__T("ASFLeakyBucketPairs")) Header_ExtendedContentDescription_ASFLeakyBucketPairs(Value_Length);
+                        else if (Name==__T("WM/Picture")) {
+                            Ztring Mime, Description;
+                            int32u Data_Size;
+                            int8u PictureType;
+                            Get_L1 (PictureType,                                    "Picture Ttype"); Element_Info1(Id3v2_PictureType(PictureType));
+                            Get_L4 (Data_Size,                                      "Data size");
+                            if (Value_Length<5 || Data_Size>Value_Length-5)
+                                return; //There is a problem
+                            int64u End = Element_Offset;
+                            while (End + 1 < Element_Size && *(int16u*)(Buffer + Buffer_Offset + End)) {
+                                End += 2;
+                            }
+                            Get_UTF16L (End-Element_Offset, Mime,                   "Mime Type");
+                            Skip_L2(                                                "Zero");
+                            End = Element_Offset;
+                            while (End + 1 < Element_Size && *(int16u*)(Buffer + Buffer_Offset + End)) {
+                                End += 2;
+                            }
+                            Get_UTF16L (End-Element_Offset, Description,            "Description");
+                            Skip_L2(                                                "Zero");
+                            auto Element_Size_Save = Element_Size;
+                            Element_Size = Element_Offset + Data_Size;
+                            Attachment("WM/Picture", Description, Id3v2_PictureType(PictureType).c_str(), Mime, true);
+                            Element_Size = Element_Size_Save;
+                        }
                         else {Skip_XX(Value_Length,             "Value"); Value=__T("(Binary)");} break;
             case 0x02 : {int32u Value_Int; Get_L4 (Value_Int,   "Value"); Value=(Value_Int==0)?__T("No"):__T("Yes"); Value_Int64=Value_Int;} break;
             case 0x03 : {int32u Value_Int; Get_L4 (Value_Int,   "Value"); Value.From_Number(Value_Int); Value_Int64=Value_Int;} break;
@@ -1162,7 +1192,12 @@ void File_Wm::Header_ExtendedContentDescription()
             else if (Name==__T("WM/EncoderSettings"))
                 Fill(Stream_General, 0, General_Encoded_Library_Settings, Value);
             else if (Name==__T("WM/EncodingTime"))
-                Fill(Stream_General, 0, General_Encoded_Date, Ztring().Date_From_Seconds_1601(Value_Int64));
+            {
+                 Ztring Encoded_Date_New=Ztring().Date_From_Seconds_1601(Value_Int64/10000000);
+                 const Ztring& Encoded_Date_Old=Retrieve_Const(Stream_General, 0, General_Encoded_Date);
+                 if (Encoded_Date_Old.empty() || Encoded_Date_New!=Encoded_Date_Old)
+                    Fill(Stream_General, 0, General_Encoded_Date, Encoded_Date_New);
+            }
             else if (Name==__T("WM/Genre"))
                 Fill(Stream_General, 0, General_Genre, Value, true); //Clear last value
             else if (Name==__T("WM/GenreID"))
@@ -1181,13 +1216,14 @@ void File_Wm::Header_ExtendedContentDescription()
             else if (Name==__T("WM/OriginalAlbumTitle"))
                 Fill(Stream_General, 0, "Original/Album", Value);
             else if (Name==__T("WM/OriginalReleaseTime"))
-                Fill(Stream_General, 0, "Original/Released_Date", Value);
+            {
+                 if (Value.size()<10 || Value.rfind(__T("0001-01-01"), 0)==string::npos)
+                     Fill(Stream_General, 0, "Original/Released_Date", Value);
+            }
             else if (Name==__T("WM/ParentalRating"))
                 Fill(Stream_General, 0, General_LawRating, Value);
             else if (Name==__T("WM/ParentalRatingReason"))
                 Fill(Stream_General, 0, General_LawRating_Reason, Value);
-            else if (Name==__T("WM/Picture"))
-                Fill(Stream_General, 0, General_Cover, "Y");
             else if (Name==__T("WM/Provider"))
                 Fill(Stream_General, 0, "Provider", Value);
             else if (Name==__T("WM/Publisher"))

@@ -11,6 +11,7 @@
 //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 //---------------------------------------------------------------------------
+//---------------------------------------------------------------------------
 // Pre-compilation
 #include "MediaInfo/PreComp.h"
 #ifdef __BORLANDC__
@@ -122,9 +123,13 @@
 #if defined(MEDIAINFO_LIBCURL_YES)
     #include "MediaInfo/Reader/Reader_libcurl.h"
 #endif //defined(MEDIAINFO_LIBCURL_YES)
+#if defined(MEDIAINFO_GRAPHVIZ_YES)
+    #include "MediaInfo/Export/Export_Graph.h"
+#endif //defined(MEDIAINFO_GRAPHVIZ_YES)
 #if defined(MEDIAINFO_EBUCORE_YES)
     #include "MediaInfo/Export/Export_EbuCore.h"
 #endif //defined(MEDIAINFO_EBUCORE_YES)
+#include <limits>
 using namespace ZenLib;
 using namespace std;
 //---------------------------------------------------------------------------
@@ -133,7 +138,7 @@ namespace MediaInfoLib
 {
 
 //---------------------------------------------------------------------------
-const Char*  MediaInfo_Version=__T("MediaInfoLib - v20.09");
+const Char*  MediaInfo_Version=__T("MediaInfoLib - v25.04");
 const Char*  MediaInfo_Url=__T("http://MediaArea.net/MediaInfo");
       Ztring EmptyZtring;       //Use it when we can't return a reference to a true Ztring
 const Ztring EmptyZtring_Const; //Use it when we can't return a reference to a true Ztring, const version
@@ -311,16 +316,15 @@ void MediaInfo_Config_Library_VorbisCom       (InfoMap &Info);
 //---------------------------------------------------------------------------
 // Output formats
 
-static const size_t output_formats_item_size = 3;
-static const char* OutputFormats_JSONFields[output_formats_item_size] =
+static const char* OutputFormats_JSONFields[] =
 {
     "name",
     "desc",
     "mime",
 };
+static const size_t output_formats_item_size = sizeof(OutputFormats_JSONFields) / sizeof(decltype(*OutputFormats_JSONFields));
 typedef const char* output_formats_item[output_formats_item_size];
-static const size_t output_formats_size = 15;
-static output_formats_item OutputFormats[output_formats_size] =
+static output_formats_item OutputFormats[] =
 {
     { "Text",                   "Text",                                                         "text/plain",       },
     { "HTML",                   "HTML",                                                         "text/html",        },
@@ -332,12 +336,15 @@ static output_formats_item OutputFormats[output_formats_size] =
     { "EBUCore_1.8_sp_JSON",    "EBUCore 1.8 (JSON; acq. metadata: segment then parameter)",    "text/json",        },
     { "EBUCore_1.6",            "EBUCore 1.6",                                                  "text/xml",         },
     { "FIMS_1.3",               "FIMS 1.3",                                                     "text/xml",         },
-    { "MPEG-7",                 "MPEG-7",                                                       "text/xml",         },
+    { "MPEG-7_Strict",          "MPEG-7 (Strict)",                                              "text/xml",         },
+    { "MPEG-7_Relaxed",         "MPEG-7 (Relaxed)",                                             "text/xml",         },
+    { "MPEG-7_Extended",        "MPEG-7 (Extended)",                                            "text/xml",         },
     { "PBCore_2.1",             "PBCore 2.1",                                                   "text/xml",         },
     { "PBCore_2.0",             "PBCore 2.0",                                                   "text/xml",         },
     { "PBCore_1.2",             "PBCore 1.2",                                                   "text/xml",         },
     { "NISO_Z39.87",            "NISO Z39.87",                                                  "text/xml",         },
 };
+static const size_t output_formats_size = sizeof(OutputFormats) / sizeof(decltype(*OutputFormats));
 
 //---------------------------------------------------------------------------
 
@@ -418,6 +425,10 @@ void MediaInfo_Config::Init(bool Force)
         InitDataNotRepeated_Occurences=(int64u)-1; //Disabled by default
         InitDataNotRepeated_GiveUp=false;
     #endif //MEDIAINFO_ADVANCED
+    #if MEDIAINFO_ADVANCED && defined(MEDIAINFO_FILE_YES)
+        TimeOut=(int64u)-1;
+        AcceptSignals=true;
+    #endif //MEDIAINFO_ADVANCED && defined(MEDIAINFO_FILE_YES)
     MpegTs_MaximumOffset=64*1024*1024;
     MpegTs_MaximumScanDuration=30000000000LL;
     MpegTs_ForceStreamDisplay=false;
@@ -429,6 +440,10 @@ void MediaInfo_Config::Init(bool Force)
     #if MEDIAINFO_ADVANCED
         Format_Profile_Split=false;
     #endif //MEDIAINFO_ADVANCED
+    #if defined(MEDIAINFO_GRAPH_YES) && defined(MEDIAINFO_ADM_YES)
+        Graph_Adm_ShowTrackUIDs=false;
+        Graph_Adm_ShowChannelFormats=false;
+    #endif //defined(MEDIAINFO_GRAPH_YES) && defined(MEDIAINFO_ADM_YES)
     #if defined(MEDIAINFO_EBUCORE_YES)
         AcquisitionDataOutputMode=Export_EbuCore::AcquisitionDataOutputMode_Default;
     #endif //defined(MEDIAINFO_EBUCORE_YES)
@@ -455,6 +470,8 @@ void MediaInfo_Config::Init(bool Force)
     Trace_Format=Trace_Format_Tree;
     Language_Raw=false;
     ReadByHuman=true;
+    Inform_Version=false;
+    Inform_Timestamp=false;
     Legacy=false;
     LegacyStreamDisplay=false;
     SkipBinaryData=false;
@@ -466,10 +483,19 @@ void MediaInfo_Config::Init(bool Force)
     DecimalPoint=__T(".");
     ThousandsPoint=Ztring();
     CarriageReturnReplace=__T(" / ");
+    #if MEDIAINFO_ADVANCED
+        Conformance_Limit=32;
+        Collection_Trigger=-2;
+        Collection_Display=display_if::Needed;
+    #endif
     #if MEDIAINFO_EVENTS
         Event_CallBackFunction=NULL;
         Event_UserHandler=NULL;
     #endif //MEDIAINFO_EVENTS
+    #if MEDIAINFO_CONFORMANCE
+        Usac_Profile=(int8u)-1;
+        Warning_Error=false;
+    #endif //MEDIAINFO_CONFORMANCE
     #if defined(MEDIAINFO_LIBCURL_YES)
         URLEncode=URLEncode_Guess;
         Ssh_IgnoreSecurity=false;
@@ -998,6 +1024,24 @@ Ztring MediaInfo_Config::Option (const String &Option, const String &Value_Raw)
     {
         return Inform_Get();
     }
+    if (Option_Lower==__T("inform_version"))
+    {
+        Inform_Version_Set(Value.To_int8u()?true:false);
+        return Ztring();
+    }
+    if (Option_Lower==__T("inform_version_get"))
+    {
+        return Inform_Version_Get()?__T("1"):__T("0");
+    }
+    if (Option_Lower==__T("inform_timestamp"))
+    {
+        Inform_Timestamp_Set(Value.To_int8u()?true:false);
+        return Ztring();
+    }
+    if (Option_Lower==__T("inform_timestamp_get"))
+    {
+        return Inform_Timestamp_Get()?__T("1"):__T("0");
+    }
     #if MEDIAINFO_ADVANCED
         if (Option_Lower==__T("cover_data"))
         {
@@ -1007,7 +1051,17 @@ Ztring MediaInfo_Config::Option (const String &Option, const String &Value_Raw)
         {
             return Cover_Data_Get();
         }
-    #endif //MEDIAINFO_COMPRESS
+    #endif //MEDIAINFO_ADVANCED
+    #if MEDIAINFO_ADVANCED && defined(MEDIAINFO_FILE_YES)
+        if (Option_Lower==__T("enable_ffmpeg"))
+        {
+            return Enable_FFmpeg_Set(Value.To_int8u()?true:false);
+        }
+        if (Option_Lower==__T("enable_ffmpeg_get"))
+        {
+            return Enable_FFmpeg_Get()?__T("1"):__T("0");
+        }
+    #endif //MEDIAINFO_ADVANCED && defined(MEDIAINFO_FILE_YES)
     #if MEDIAINFO_COMPRESS
         if (Option_Lower==__T("inform_compress"))
         {
@@ -1101,7 +1155,6 @@ Ztring MediaInfo_Config::Option (const String &Option, const String &Value_Raw)
         String NewValue_Lower(Value);
         transform(NewValue_Lower.begin(), NewValue_Lower.end(), NewValue_Lower.begin(), (int(*)(int))tolower); //(int(*)(int)) is a patch for unix
 
-        CriticalSectionLocker CSL(CS);
         if (NewValue_Lower==__T("csv"))
             Trace_Format_Set(Trace_Format_CSV);
         else if (NewValue_Lower==__T("xml") || NewValue_Lower==__T("MAXML"))
@@ -1262,6 +1315,40 @@ Ztring MediaInfo_Config::Option (const String &Option, const String &Value_Raw)
             return __T("advanced features are disabled due to compilation options");
         #endif // MEDIAINFO_ADVANCED
     }
+    if (Option_Lower==__T("timeout"))
+    {
+        #if MEDIAINFO_ADVANCED && defined(MEDIAINFO_FILE_YES)
+            TimeOut_Set(Value.empty()?((int64u)-1):Value.To_int64u());
+            return Ztring();
+        #else // MEDIAINFO_ADVANCED && defined(MEDIAINFO_FILE_YES)
+            return __T("advanced features are disabled due to compilation options");
+        #endif // MEDIAINFO_ADVANCED && defined(MEDIAINFO_FILE_YES)
+    }
+    if (Option_Lower==__T("timeout_get"))
+    {
+        #if MEDIAINFO_ADVANCED && defined(MEDIAINFO_FILE_YES)
+            return Ztring::ToZtring(TimeOut_Get());
+        #else // MEDIAINFO_ADVANCED && defined(MEDIAINFO_FILE_YES)
+            return __T("advanced features are disabled due to compilation options");
+        #endif // MEDIAINFO_ADVANCED && defined(MEDIAINFO_FILE_YES)
+    }
+    if (Option_Lower==__T("acceptsignals"))
+    {
+        #if MEDIAINFO_ADVANCED && defined(MEDIAINFO_FILE_YES)
+            AcceptSignals_Set(!(Value==__T("0") || Value.empty()));
+            return Ztring();
+        #else // MEDIAINFO_ADVANCED && defined(MEDIAINFO_FILE_YES)
+            return __T("advanced features are disabled due to compilation options");
+        #endif // MEDIAINFO_ADVANCED && defined(MEDIAINFO_FILE_YES)
+    }
+    if (Option_Lower==__T("acceptsignals_get"))
+    {
+        #if MEDIAINFO_ADVANCED && defined(MEDIAINFO_FILE_YES)
+            return AcceptSignals_Get()?__T("1"):__T("0");
+        #else // MEDIAINFO_ADVANCED && defined(MEDIAINFO_FILE_YES)
+            return __T("advanced features are disabled due to compilation options");
+        #endif // MEDIAINFO_ADVANCED && defined(MEDIAINFO_FILE_YES)
+    }
     if (Option_Lower==__T("mpegts_maximumoffset"))
     {
         MpegTs_MaximumOffset_Set(Value==__T("-1")?(int64u)-1:((Ztring*)&Value)->To_int64u());
@@ -1370,6 +1457,34 @@ Ztring MediaInfo_Config::Option (const String &Option, const String &Value_Raw)
         CustomMapping_Set(Value);
         return Ztring();
     }
+    if (Option_Lower==__T("conformance_limit"))
+    {
+        #if MEDIAINFO_CONFORMANCE
+            Conformance_Limit_Set(Value);
+            return Ztring();
+        #else // MEDIAINFO_CONFORMANCE
+            return __T("advanced features are disabled due to compilation options");
+        #endif // MEDIAINFO_CONFORMANCE
+    }
+    if (Option_Lower==__T("collection_trigger"))
+    {
+        #if MEDIAINFO_ADVANCED
+            Collection_Trigger_Set(Value);
+            return Ztring();
+        #else // MEDIAINFO_ADVANCED
+            return __T("advanced features are disabled due to compilation options");
+        #endif // MEDIAINFO_ADVANCED
+    }
+    if (Option_Lower==__T("collection_display"))
+    {
+        #if MEDIAINFO_ADVANCED
+            String Value_Lower(Value);
+            transform(Value_Lower.begin(), Value_Lower.end(), Value_Lower.begin(), (int(*)(int))tolower); //(int(*)(int)) is a patch for unix
+            return Collection_Display_Set(Value_Lower);
+        #else // MEDIAINFO_ADVANCED
+            return __T("advanced features are disabled due to compilation options");
+        #endif // MEDIAINFO_ADVANCED
+    }
     if (Option_Lower==__T("format_profile_split"))
     {
         #if MEDIAINFO_ADVANCED
@@ -1386,6 +1501,40 @@ Ztring MediaInfo_Config::Option (const String &Option, const String &Value_Raw)
         #else // MEDIAINFO_ADVANCED
             return __T("advanced features are disabled due to compilation options");
         #endif // MEDIAINFO_ADVANCED
+    }
+    if (Option_Lower==__T("graph_adm_showtrackuids"))
+    {
+        #if defined(MEDIAINFO_GRAPH_YES) && defined(MEDIAINFO_ADM_YES)
+            Graph_Adm_ShowTrackUIDs_Set(Value.To_int8u()?true:false);
+            return Ztring();
+        #else //defined(MEDIAINFO_GRAPH_YES) && defined(MEDIAINFO_ADM_YES)
+            return __T("Feature disabled due to compilation options");
+        #endif // defined(MEDIAINFO_GRAPH_YES) && defined(MEDIAINFO_ADM_YES)
+    }
+    if (Option_Lower == __T("graph_adm_showtrackuids_get"))
+    {
+        #if defined(MEDIAINFO_GRAPH_YES) && defined(MEDIAINFO_ADM_YES)
+            return Graph_Adm_ShowTrackUIDs_Get()?__T("1"):__T("0");
+        #else //defined(MEDIAINFO_GRAPH_YES) && defined(MEDIAINFO_ADM_YES)
+            return __T("Feature disabled due to compilation options");
+        #endif // defined(MEDIAINFO_GRAPH_YES) && defined(MEDIAINFO_ADM_YES)
+    }
+    if (Option_Lower==__T("graph_adm_showchannelformats"))
+    {
+        #if defined(MEDIAINFO_GRAPH_YES) && defined(MEDIAINFO_ADM_YES)
+            Graph_Adm_ShowChannelFormats_Set(Value.To_int8u()?true:false);
+            return Ztring();
+        #else //defined(MEDIAINFO_GRAPH_YES) && defined(MEDIAINFO_ADM_YES)
+            return __T("Feature disabled due to compilation options");
+        #endif // defined(MEDIAINFO_GRAPH_YES) && defined(MEDIAINFO_ADM_YES)
+    }
+    if (Option_Lower == __T("graph_adm_showchannelformats_get"))
+    {
+        #if defined(MEDIAINFO_GRAPH_YES) && defined(MEDIAINFO_ADM_YES)
+            return Graph_Adm_ShowChannelFormats_Get()?__T("1"):__T("0");
+        #else //defined(MEDIAINFO_GRAPH_YES) && defined(MEDIAINFO_ADM_YES)
+            return __T("Feature disabled due to compilation options");
+        #endif // defined(MEDIAINFO_GRAPH_YES) && defined(MEDIAINFO_ADM_YES)
     }
     if (Option_Lower==__T("acquisitiondataoutputmode"))
     {
@@ -1455,10 +1604,90 @@ Ztring MediaInfo_Config::Option (const String &Option, const String &Value_Raw)
             return __T("Libcurl support is disabled due to compilation options");
         #endif // defined(MEDIAINFO_LIBCURL_YES)
     }
+
+    if (Option_Lower==__T("info_graph_svg_plugin_state"))
+    {
+        #if defined(MEDIAINFO_GRAPH_YES) && defined(MEDIAINFO_GRAPHVIZ_YES)
+            return GraphSvgPluginState()?__T("1"):__T("0");
+        #else // defined(MEDIAINFO_GRAPHVIZ_YES)
+            return __T("Graphviz support is disabled due to compilation options");
+        #endif // defined(MEDIAINFO_GRAPHVIZ_YES)
+    }
+
+    if (Option_Lower==__T("admprofile"))
+    {
+        #if MEDIAINFO_CONFORMANCE
+            return Ztring().From_UTF8(AdmProfile(Value));
+        #else // MEDIAINFO_CONFORMANCE
+            return __T("conformance features are disabled due to compilation options");
+        #endif // MEDIAINFO_CONFORMANCE
+    }
+    if (Option_Lower==__T("admprofile_list"))
+    {
+        #if MEDIAINFO_CONFORMANCE
+            return Ztring().From_UTF8(AdmProfile_List());
+        #else // MEDIAINFO_CONFORMANCE
+            return Ztring();
+        #endif // MEDIAINFO_CONFORMANCE
+    }
+
+    if (Option_Lower==__T("mp4profile"))
+    {
+        #if MEDIAINFO_CONFORMANCE
+            return Ztring().From_UTF8(Mp4Profile(Value));
+        #else // MEDIAINFO_CONFORMANCE
+            return __T("conformance features are disabled due to compilation options");
+        #endif // MEDIAINFO_CONFORMANCE
+    }
+    if (Option_Lower==__T("mp4profile_list"))
+    {
+        #if MEDIAINFO_CONFORMANCE
+            return Ztring().From_UTF8(Mp4Profile_List());
+        #else // MEDIAINFO_CONFORMANCE
+            return Ztring();
+        #endif // MEDIAINFO_CONFORMANCE
+    }
+
+    if (Option_Lower==__T("usacprofile"))
+    {
+        #if MEDIAINFO_CONFORMANCE
+            return Ztring().From_UTF8(UsacProfile(Value));
+        #else // MEDIAINFO_CONFORMANCE
+            return __T("conformance features are disabled due to compilation options");
+        #endif // MEDIAINFO_CONFORMANCE
+    }
+    if (Option_Lower==__T("usacprofile_list"))
+    {
+        #if MEDIAINFO_CONFORMANCE
+            return Ztring().From_UTF8(UsacProfile_List());
+        #else // MEDIAINFO_CONFORMANCE
+            return Ztring();
+        #endif // MEDIAINFO_CONFORMANCE
+    }
+
+    if (Option_Lower==__T("profile_list"))
+    {
+        #if MEDIAINFO_CONFORMANCE
+            return Ztring().From_UTF8(Profile_List());
+        #else // MEDIAINFO_CONFORMANCE
+            return __T("conformance features are disabled due to compilation options");
+        #endif // MEDIAINFO_CONFORMANCE
+    }
+    if (Option_Lower==__T("warning"))
+    {
+        #if MEDIAINFO_CONFORMANCE
+            String Value_Lower(Value);
+            transform(Value_Lower.begin(), Value_Lower.end(), Value_Lower.begin(), (int(*)(int))tolower); //(int(*)(int)) is a patch for unix
+            WarningError(Value_Lower==__T("error"));
+            return Ztring();
+        #else // MEDIAINFO_CONFORMANCE
+            return __T("conformance features are disabled due to compilation options");
+        #endif // MEDIAINFO_CONFORMANCE
+    }
     if (Option_Lower==__T("info_canhandleurls"))
     {
         #if defined(MEDIAINFO_LIBCURL_YES)
-            return CanHandleUrls()?__T("1"):__T("0");;
+            return CanHandleUrls()?__T("1"):__T("0");
         #else // defined(MEDIAINFO_LIBCURL_YES)
             return __T("Libcurl support is disabled due to compilation options");
         #endif // defined(MEDIAINFO_LIBCURL_YES)
@@ -1712,7 +1941,7 @@ set<Ztring> MediaInfo_Config::ParseOnlyKnownExtensions_GetList_Set()
     if (DefaultList)
     {
         InfoMap &FormatList=MediaInfoLib::Config.Format_Get();
-        for (InfoMap::iterator Format=FormatList.begin(); Format!=FormatList.end(); Format++)
+        for (InfoMap::iterator Format=FormatList.begin(); Format!=FormatList.end(); ++Format)
             if (InfoFormat_Extensions<Format->second.size())
             {
                 if (!StreamKinds.empty() && Format->second[InfoFormat_KindofFormat].find_first_of(StreamKinds)==string::npos)
@@ -1734,7 +1963,7 @@ Ztring MediaInfo_Config::ParseOnlyKnownExtensions_GetList_String()
 {
     set<Ztring> Extensions=ParseOnlyKnownExtensions_GetList_Set();
     Ztring List;
-    for (set<Ztring>::iterator Extension=Extensions.begin(); Extension!=Extensions.end(); Extension++)
+    for (set<Ztring>::iterator Extension=Extensions.begin(); Extension!=Extensions.end(); ++Extension)
     {
         List+=*Extension;
         List+=__T(',');
@@ -2434,6 +2663,32 @@ ZtringListList MediaInfo_Config::Inform_Replace_Get_All ()
 }
 
 //---------------------------------------------------------------------------
+void MediaInfo_Config::Inform_Version_Set (bool NewValue)
+{
+    CriticalSectionLocker CSL(CS);
+    Inform_Version=NewValue;
+}
+
+bool MediaInfo_Config::Inform_Version_Get ()
+{
+    CriticalSectionLocker CSL(CS);
+    return Inform_Version;
+}
+
+//---------------------------------------------------------------------------
+void MediaInfo_Config::Inform_Timestamp_Set (bool NewValue)
+{
+    CriticalSectionLocker CSL(CS);
+    Inform_Timestamp=NewValue;
+}
+
+bool MediaInfo_Config::Inform_Timestamp_Get ()
+{
+    CriticalSectionLocker CSL(CS);
+    return Inform_Timestamp;
+}
+
+//---------------------------------------------------------------------------
 #if MEDIAINFO_ADVANCED
 Ztring MediaInfo_Config::Cover_Data_Set (const Ztring &NewValue_)
 {
@@ -2464,6 +2719,31 @@ Ztring MediaInfo_Config::Cover_Data_Get ()
     return ToReturn;
 }
 #endif //MEDIAINFO_ADVANCED
+
+
+//---------------------------------------------------------------------------
+#if MEDIAINFO_ADVANCED && defined(MEDIAINFO_FILE_YES)
+Ztring MediaInfo_Config::Enable_FFmpeg_Set (bool NewValue)
+{
+    const int64u Mask=~((1<<Flags_Enable_FFmpeg));
+    int64u Value;
+    if (NewValue)
+        Value=(1<<Flags_Enable_FFmpeg);
+    else
+        Value=0;
+
+    CriticalSectionLocker CSL(CS);
+    Flags1&=Mask;
+    Flags1|=Value;
+    return Ztring();
+}
+
+bool MediaInfo_Config::Enable_FFmpeg_Get ()
+{
+    CriticalSectionLocker CSL(CS);
+    return Flags1&(1<<Flags_Enable_FFmpeg);
+}
+#endif //MEDIAINFO_ADVANCED && defined(MEDIAINFO_FILE_YES)
 
 //---------------------------------------------------------------------------
 #if MEDIAINFO_COMPRESS
@@ -2616,7 +2896,7 @@ const Ztring &MediaInfo_Config::Codec_Get (const Ztring &Value, infocodec_t Kind
 //---------------------------------------------------------------------------
 const Ztring &MediaInfo_Config::CodecID_Get (stream_t KindOfStream, infocodecid_format_t Format, const Ztring &Value, infocodecid_t KindOfCodecIDInfo)
 {
-    if (Format>=InfoCodecID_Format_Max || KindOfStream>=Stream_Max)
+    if (Format>=InfoCodecID_Format_Max || Format<0 || KindOfStream>=Stream_Max || KindOfStream<0)
         return EmptyString_Get();
     {
     CriticalSectionLocker CSL(CS);
@@ -2677,7 +2957,7 @@ const Ztring &MediaInfo_Config::CodecID_Get (stream_t KindOfStream, infocodecid_
 //---------------------------------------------------------------------------
 const Ztring &MediaInfo_Config::Library_Get (infolibrary_format_t Format, const Ztring &Value, infolibrary_t KindOfLibraryInfo)
 {
-    if (Format>=InfoLibrary_Format_Max)
+    if (Format>=InfoLibrary_Format_Max || Format<0)
         return EmptyString_Get();
     {
     CriticalSectionLocker CSL(CS);
@@ -2740,7 +3020,7 @@ const Ztring MediaInfo_Config::Iso639_Find (const Ztring &Value)
 }
 
 //---------------------------------------------------------------------------
-const Ztring MediaInfo_Config::Iso639_Translate (const Ztring Value)
+const Ztring MediaInfo_Config::Iso639_Translate (const Ztring &Value)
 {
     Ztring Code(Value);
     if (Code.size()==3 && !MediaInfoLib::Config.Iso639_1_Get(Code).empty())
@@ -2759,7 +3039,7 @@ const Ztring MediaInfo_Config::Iso639_Translate (const Ztring Value)
 void MediaInfo_Config::Language_Set_Internal(stream_t KindOfStream)
 {
     //Loading codec table if not yet done
-    if (Info[KindOfStream].empty())
+    if (KindOfStream>=0 && KindOfStream<Stream_Max && Info[KindOfStream].empty())
         switch (KindOfStream)
         {
             case Stream_General :   MediaInfo_Config_General(Info[Stream_General]);   Language_Set(Stream_General); break;
@@ -2777,7 +3057,7 @@ void MediaInfo_Config::Language_Set_Internal(stream_t KindOfStream)
 const Ztring &MediaInfo_Config::Info_Get (stream_t KindOfStream, const Ztring &Value, info_t KindOfInfo)
 {
     Language_Set_All(KindOfStream);
-    if (KindOfStream>=Stream_Max)
+    if (KindOfStream<0 || KindOfStream>=Stream_Max)
         return EmptyString_Get();
     size_t Pos=Info[KindOfStream].Find(Value);
     if (Pos==Error || (size_t)KindOfInfo>=Info[KindOfStream][Pos].size())
@@ -2789,7 +3069,7 @@ const Ztring &MediaInfo_Config::Info_Get (stream_t KindOfStream, size_t Pos, inf
 {
     Language_Set_All(KindOfStream);
 
-    if (KindOfStream>=Stream_Max)
+    if (KindOfStream<0 || KindOfStream>=Stream_Max)
         return EmptyString_Get();
     if (Pos>=Info[KindOfStream].size() || (size_t)KindOfInfo>=Info[KindOfStream][Pos].size())
         return EmptyString_Get();
@@ -2798,7 +3078,7 @@ const Ztring &MediaInfo_Config::Info_Get (stream_t KindOfStream, size_t Pos, inf
 
 const ZtringListList &MediaInfo_Config::Info_Get(stream_t KindOfStream)
 {
-    if (KindOfStream>=Stream_Max)
+    if (KindOfStream<0 || KindOfStream>=Stream_Max)
         return EmptyStringListList_Get();
 
     Language_Set_All(KindOfStream);
@@ -3088,6 +3368,33 @@ bool MediaInfo_Config::InitDataNotRepeated_GiveUp_Get ()
 }
 #endif // MEDIAINFO_ADVANCED
 
+
+#if MEDIAINFO_ADVANCED && defined(MEDIAINFO_FILE_YES)
+void MediaInfo_Config::TimeOut_Set (int64u Value)
+{
+    CriticalSectionLocker CSL(CS);
+    TimeOut=Value;
+}
+
+int64u MediaInfo_Config::TimeOut_Get ()
+{
+    CriticalSectionLocker CSL(CS);
+    return TimeOut;
+}
+
+void MediaInfo_Config::AcceptSignals_Set (bool Value)
+{
+    CriticalSectionLocker CSL(CS);
+    AcceptSignals=Value;
+}
+
+bool MediaInfo_Config::AcceptSignals_Get ()
+{
+    CriticalSectionLocker CSL(CS);
+    return AcceptSignals;
+}
+#endif // MEDIAINFO_ADVANCED && defined(MEDIAINFO_FILE_YES)
+
 void MediaInfo_Config::MpegTs_MaximumOffset_Set (int64u Value)
 {
     CriticalSectionLocker CSL(CS);
@@ -3237,6 +3544,92 @@ ZtringListList MediaInfo_Config::SubFile_Config_Get ()
 }
 
 //***************************************************************************
+// Collections
+//***************************************************************************
+
+//---------------------------------------------------------------------------
+#if MEDIAINFO_CONFORMANCE
+Ztring MediaInfo_Config::Conformance_Limit_Set(const Ztring& Value)
+{
+    int64s ValueI;
+    auto Value_Lower(Value);
+    transform(Value_Lower.begin(), Value_Lower.end(), Value_Lower.begin(), (int(*)(int))tolower); //(int(*)(int)) is a patch for unix
+    if (Value_Lower==__T("inf"))
+        ValueI=-1;
+    else
+    {
+        ValueI=-Value.To_int64s();
+        if ((!ValueI && Value != __T("0")) || ValueI>numeric_limits<int64s>::max())
+            return __T("Invalid Conformance_Limit value");
+    }
+
+    CriticalSectionLocker CSL(CS);
+    Conformance_Limit=(int64u)ValueI;
+    return {};
+}
+
+int64u MediaInfo_Config::Conformance_Limit_Get()
+{
+    CriticalSectionLocker CSL(CS);
+
+    return Conformance_Limit;
+}
+#endif // MEDIAINFO_CONFORMANCE
+
+//---------------------------------------------------------------------------
+#if MEDIAINFO_ADVANCED
+void MediaInfo_Config::Collection_Trigger_Set(const Ztring& Value)
+{
+    int64s ValueI;
+    if (!Value.empty() && Value.back()==__T('x'))
+        ValueI=-Value.To_int64s();
+    else
+        ValueI=(int64s)(Value.To_float32()*1000);
+
+    CriticalSectionLocker CSL(CS);
+
+    Collection_Trigger=ValueI;
+}
+
+int64s MediaInfo_Config::Collection_Trigger_Get()
+{
+    CriticalSectionLocker CSL(CS);
+
+    return Collection_Trigger;
+}
+#endif // MEDIAINFO_ADVANCED
+
+//---------------------------------------------------------------------------
+#if MEDIAINFO_ADVANCED
+Ztring MediaInfo_Config::Collection_Display_Set(const Ztring& Value)
+{
+    display_if ValueI;
+    if (Value==__T("never"))
+        ValueI=display_if::Never;
+    else if (Value==__T("needed"))
+        ValueI=display_if::Needed;
+    else if (Value.empty() || Value==__T("supported"))
+        ValueI=display_if::Supported;
+    else if (Value==__T("always"))
+        ValueI=display_if::Always;
+    else
+        return __T("Unknown Collection_Display value");
+
+    CriticalSectionLocker CSL(CS);
+
+    Collection_Display=ValueI;
+    return Ztring();
+}
+
+display_if MediaInfo_Config::Collection_Display_Get()
+{
+    CriticalSectionLocker CSL(CS);
+
+    return Collection_Display;
+}
+#endif // MEDIAINFO_ADVANCED
+
+//***************************************************************************
 // Custom mapping
 //***************************************************************************
 
@@ -3286,6 +3679,32 @@ bool MediaInfo_Config::Format_Profile_Split_Get ()
     return Format_Profile_Split;
 }
 #endif // MEDIAINFO_ADVANCED
+
+#if defined(MEDIAINFO_GRAPH_YES) && defined(MEDIAINFO_ADM_YES)
+void MediaInfo_Config::Graph_Adm_ShowTrackUIDs_Set(bool Value)
+{
+    CriticalSectionLocker CSL(CS);
+    Graph_Adm_ShowTrackUIDs=Value;
+}
+
+bool MediaInfo_Config::Graph_Adm_ShowTrackUIDs_Get()
+{
+    CriticalSectionLocker CSL(CS);
+    return Graph_Adm_ShowTrackUIDs;
+}
+
+void MediaInfo_Config::Graph_Adm_ShowChannelFormats_Set(bool Value)
+{
+    CriticalSectionLocker CSL(CS);
+    Graph_Adm_ShowChannelFormats=Value;
+}
+
+bool MediaInfo_Config::Graph_Adm_ShowChannelFormats_Get()
+{
+    CriticalSectionLocker CSL(CS);
+    return Graph_Adm_ShowChannelFormats;
+}
+#endif //defined(MEDIAINFO_GRAPH_YES) && defined(MEDIAINFO_ADM_YES)
 
 #if defined(MEDIAINFO_EBUCORE_YES)
 void MediaInfo_Config::AcquisitionDataOutputMode_Set(size_t Value)
@@ -3443,6 +3862,212 @@ void MediaInfo_Config::Log_Send (int8u Type, int8u Severity, int32u MessageCode,
     Event_Send((const int8u*)&Event, sizeof(MediaInfo_Event_Log_0));
 }
 #endif //MEDIAINFO_EVENTS
+
+//***************************************************************************
+// Graphviz
+//***************************************************************************
+
+#if defined(MEDIAINFO_GRAPHVIZ_YES)
+bool MediaInfo_Config::GraphSvgPluginState()
+{
+    CriticalSectionLocker CSL(CS);
+    return Export_Graph::Load();
+}
+#endif //defined(MEDIAINFO_GRAPHVIZ_YES)
+
+//***************************************************************************
+// Default profiles
+//***************************************************************************
+
+#if MEDIAINFO_CONFORMANCE
+string MediaInfo_Config::AdmProfile(const Ztring& Value2)
+{
+    Ztring Value(Value2);
+    transform(Value.begin(), Value.end(), Value.begin(), (int(*)(int))tolower); //(int(*)(int)) is a patch for unix
+    ZtringList List;
+    List.Separator_Set(0, __T(","));
+    List.Write(Value);
+    adm_profile Result;
+    for (const auto& ItemZ : List)
+    {
+        const auto Item = ItemZ.To_UTF8();
+        if (Item == "auto")
+            Adm_Profile.Auto = true;
+        else if (Item == "itu-r_bs.2076-0")
+            Adm_Profile.BS2076 = 0;
+        else if (Item == "itu-r_bs.2076-1")
+            Adm_Profile.BS2076 = 1;
+        else if (Item == "itu-r_bs.2076-2")
+            Adm_Profile.BS2076 = 2;
+        else if (Item.rfind("urn:ebu:tech:3392:1.0:", 0) == 0)
+        {
+            if (Item.size() > 22 && Item[22] >= '1' && Item[22] <= '4')
+                Adm_Profile.Ebu3392 = Item[22] - '0';
+            else
+                return "Unknown ADM profile " + Item;
+        }
+        else
+            return "Unknown ADM profile " + Item;
+    }
+
+    CriticalSectionLocker CSL(CS);
+    Adm_Profile = Result;
+    return {};
+}
+#endif //MEDIAINFO_CONFORMANCE
+
+#if MEDIAINFO_CONFORMANCE
+string MediaInfo_Config::AdmProfile_List()
+{
+    string Result;
+    string LineSep = LineSeparator_Get().To_UTF8();
+    for (int8u i = 1; i <= 4; i++)
+    {
+        Result += "urn:ebu:tech:3392:1.0:" + to_string(i);
+        Result += LineSep;
+    }
+    Result.erase(Result.size() - LineSep.size());
+    return Result;
+}
+#endif //MEDIAINFO_CONFORMANCE
+
+#if MEDIAINFO_CONFORMANCE
+MediaInfo_Config::adm_profile MediaInfo_Config::AdmProfile()
+{
+    CriticalSectionLocker CSL(CS);
+    return Adm_Profile;
+}
+#endif //MEDIAINFO_CONFORMANCE
+
+#if MEDIAINFO_CONFORMANCE
+string MediaInfo_Config::Mp4Profile(const Ztring& Value)
+{
+    ZtringList List;
+    List.Separator_Set(0, __T(","));
+    List.Write(Value);
+    string Temp;
+    for (const auto& ItemZ : List)
+    {
+        const auto Item = ItemZ.To_UTF8();
+        if (false)
+            ;
+        else if (Item == "cmfc" || Item == "cmff" || Item == "cmfl" || Item == "cmfs" || Item == "cmaf")
+            Temp += "cmfc";
+        else
+            return "Unknown MP4 profile " + Item;
+    }
+
+    CriticalSectionLocker CSL(CS);
+    Mp4_Profile = Temp;
+    return {};
+}
+#endif //MEDIAINFO_CONFORMANCE
+
+#if MEDIAINFO_CONFORMANCE
+string MediaInfo_Config::Mp4Profile()
+{
+    CriticalSectionLocker CSL(CS);
+    return Mp4_Profile;
+}
+#endif //MEDIAINFO_ADVANCED
+
+#if MEDIAINFO_CONFORMANCE
+string MediaInfo_Config::Mp4Profile_List()
+{
+    return "CMAF";
+}
+#endif //MEDIAINFO_CONFORMANCE
+
+#if MEDIAINFO_CONFORMANCE
+extern string Mpeg4_Descriptors_AudioProfileLevelString(int8u AudioProfileLevelIndication);
+string MediaInfo_Config::UsacProfile(const Ztring& ValueZ)
+{
+    auto Value = ValueZ.To_UTF8();
+    if (Value.empty())
+    {
+        CriticalSectionLocker CSL(CS);
+        Usac_Profile = (int8u)-1;
+        return {};
+    }
+    transform(Value.begin(), Value.end(), Value.begin(), (int(*)(int))tolower); //(int(*)(int)) is a patch for unix
+
+    for (int8u AudioProfileLevelIndication = 0; AudioProfileLevelIndication < 0xFF; AudioProfileLevelIndication++)
+    {
+        string Test;
+        switch (AudioProfileLevelIndication)
+        {
+            case 0x00 : Test = "No Profile"; break;
+            case 0xFE : Test = "Unspecified"; break;
+            case 0xFF : Test = "No Audio"; break;
+            default   : Test = Mpeg4_Descriptors_AudioProfileLevelString(AudioProfileLevelIndication);
+        }
+        transform(Test.begin(), Test.end(), Test.begin(), (int(*)(int))tolower); //(int(*)(int)) is a patch for unix
+        if (Test == Value)
+        {
+            CriticalSectionLocker CSL(CS);
+            Usac_Profile = AudioProfileLevelIndication;
+            return {};
+        }
+    }
+
+    return "Unknown USAC profile " + Value;
+}
+#endif //MEDIAINFO_ADVANCED
+
+#if MEDIAINFO_CONFORMANCE
+int8u MediaInfo_Config::UsacProfile()
+{
+    CriticalSectionLocker CSL(CS);
+    return Usac_Profile;
+}
+#endif //MEDIAINFO_CONFORMANCE
+
+#if MEDIAINFO_CONFORMANCE
+string MediaInfo_Config::UsacProfile_List()
+{
+    string LineSep = LineSeparator_Get().To_UTF8();
+    string Result;
+    Result += "No Profile";
+    Result += LineSep;
+    for (int8u AudioProfileLevelIndication = 1; AudioProfileLevelIndication < 0xFE; AudioProfileLevelIndication++)
+    {
+        auto Temp = Mpeg4_Descriptors_AudioProfileLevelString(AudioProfileLevelIndication);
+        if (!Temp.empty())
+        {
+            Result += LineSep;
+            Result += Temp;
+        }
+    }
+    Result += "Unspecified";
+    Result += LineSep;
+    Result += "No Audio";
+    return Result;
+}
+#endif //MEDIAINFO_CONFORMANCE
+
+#if MEDIAINFO_CONFORMANCE
+string MediaInfo_Config::Profile_List()
+{
+    auto LineSep = LineSeparator_Get().To_UTF8();
+    return "ADM" + LineSep + "MP4" + LineSep + "USAC";
+}
+#endif //MEDIAINFO_CONFORMANCE
+
+#if MEDIAINFO_CONFORMANCE
+void MediaInfo_Config::WarningError(bool Value)
+{
+    CriticalSectionLocker CSL(CS);
+    Warning_Error=Value;
+}
+#endif //MEDIAINFO_CONFORMANCE
+
+#if MEDIAINFO_CONFORMANCE
+bool MediaInfo_Config::WarningError()
+{
+    CriticalSectionLocker CSL(CS);
+    return Warning_Error;
+}
+#endif //MEDIAINFO_CONFORMANCE
 
 //***************************************************************************
 // Curl

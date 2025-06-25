@@ -22,6 +22,8 @@ Codec/String
 Codec/Info
 Codec/Url
 Codec/CC
+Width
+Height
 Duration
 Duration/String
 Duration/String1
@@ -48,7 +50,7 @@ BitRate_Maximum
 BitRate_Maximum/String
 BitRate_Encoded
 BitRate_Encoded/String
-FrameRate;
+FrameRate
 FrameRate/String
 FrameRate_Num
 FrameRate_Den
@@ -91,6 +93,11 @@ Video_Delay/String2
 Video_Delay/String3
 Video_Delay/String4
 Video_Delay/String5
+TimeCode_FirstFrame
+TimeCode_LastFrame
+TimeCode_DropFrame
+TimeCode_Settings
+TimeCode_Source
 StreamSize
 StreamSize/String
 StreamSize/String1

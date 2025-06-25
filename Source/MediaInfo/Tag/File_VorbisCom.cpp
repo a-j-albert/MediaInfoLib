@@ -22,6 +22,7 @@
 
 //---------------------------------------------------------------------------
 #include "MediaInfo/Tag/File_VorbisCom.h"
+#include "ThirdParty/base64/base64.h"
 //---------------------------------------------------------------------------
 
 namespace MediaInfoLib
@@ -32,10 +33,30 @@ namespace MediaInfoLib
 //***************************************************************************
 
 //---------------------------------------------------------------------------
-extern const char* Id3v2_PictureType(int8u Type); //In Tag/File_Id3v2.cpp
+extern std::string Id3v2_PictureType(int8u Type);
 extern std::string ExtensibleWave_ChannelMask (int32u ChannelMask); //In Multiple/File_Riff_Elements.cpp
 extern std::string ExtensibleWave_ChannelMask2 (int32u ChannelMask); //In Multiple/File_Riff_Elements.cpp
 extern std::string ExtensibleWave_ChannelMask_ChannelLayout(int32u ChannelMask); //In Multiple/File_Riff_Elements.cpp
+
+//---------------------------------------------------------------------------
+const char* VorbisCom_ToIgnore[]=
+{
+    "BUYCDURL",
+    "MUSICBRAINZ_ALBUMID",
+    "MUSICBRAINZ_ALBUMARTISTID",
+    "MUSICBRAINZ_ARTISTID",
+    "MUSICBRAINZ_TRACKID",
+    "MUSICBRAINZ_DISCID",
+    "NULL",
+    "REPLAYGAIN_REFERENCE_LOUDNESS",
+};
+bool VorbisCom_CheckToIgnore(const string& Key)
+{
+    for (const auto ToIgnore : VorbisCom_ToIgnore)
+        if (ToIgnore==Key)
+            return true;
+    return false;
+}
 
 //***************************************************************************
 // Constructor/Destructor
@@ -43,7 +64,7 @@ extern std::string ExtensibleWave_ChannelMask_ChannelLayout(int32u ChannelMask);
 
 //---------------------------------------------------------------------------
 File_VorbisCom::File_VorbisCom()
-:File__Analyze()
+    :File__Analyze(), user_comment_list_length{}
 {
     //In
     StreamKind_Specific=Stream_General;
@@ -161,7 +182,6 @@ void File_VorbisCom::FileHeader_Parse()
             {
                 Library_Date.insert(6, 1, __T('-'));
                 Library_Date.insert(4, 1, __T('-'));
-                Library_Date.insert(0, __T("UTC "));
             }
         }
         if (vendor_string.find(__T("libFLAC"))!=std::string::npos) Library_Name="libFLAC";
@@ -211,16 +231,25 @@ void File_VorbisCom::Data_Parse()
         Ztring Key=comment.SubString(__T(""), __T("="));
         Key.MakeUpperCase();
         Ztring Value=comment.SubString(__T("="), __T(""));
+        Ztring Encoded_Date, Encoded_Time, TimeReference_High, TimeReference_Low;
 
              if (Key==__T("ADDED_TIMESTAMP"))        Fill(StreamKind_Common,   0, "Added_Date", Ztring().Date_From_Milliseconds_1601(Value.To_int64u()/1000));
         else if (Key==__T("ALBUM ARTIST"))           AlbumArtists.push_back(Value);
         else if (Key==__T("ALBUM"))                  Fill(StreamKind_Common,   0, "Album", Value);
         else if (Key==__T("ALBUM_COMMENT"))          Fill(StreamKind_Common,   0, "Comment", Value);
         else if (Key==__T("ALBUMARTIST"))            AlbumArtists.push_back(Value);
+        else if (Key==__T("ARRANGER"))               Fill(StreamKind_Common,   0, "Arranger", Value);
         else if (Key==__T("ARTIST"))                 Artists.push_back(Value);
         else if (Key==__T("AUTHOR"))                 Fill(StreamKind_Common,   0, "WrittenBy", Value);
-        else if (Key==__T("BUYCDURL"))               {}
+        else if (Key==__T("BWFVERSION"))             // bext
+        {
+            Fill(Stream_General, 0, "bext_Present", "Yes");
+            Fill_SetOptions(Stream_General, 0, "bext_Present", "N NT");
+            Fill(Stream_General, 0, "bext_Version", Value);
+            Fill_SetOptions(Stream_General, 0, "bext_Version", "N NIY");
+        }
         else if (Key==__T("CLASS"))                  Fill(StreamKind_Common,   0, "ContentType", Value);
+        else if (Key==__T("CODINGHISTORY"))          Fill(StreamKind_Common,   0, "Encoded_Library_Settings", Value); // bext
         else if (Key==__T("COMPOSER"))               Fill(StreamKind_Common,   0, "Composer", Value);
         else if (Key==__T("COMMENT"))                Fill(StreamKind_Common,   0, "Comment", Value);
         else if (Key==__T("COMMENTS"))               Fill(StreamKind_Common,   0, "Comment", Value);
@@ -228,6 +257,13 @@ void File_VorbisCom::Data_Parse()
         else if (Key==__T("CONTACT"))                Fill(StreamKind_Common,   0, "Publisher", Value);
         else if (Key==__T("COPYRIGHT"))              Fill(StreamKind_Common,   0, "Copyright", Value);
         else if (Key==__T("DATE"))                   Fill(StreamKind_Common,   0, "Recorded_Date", Value, true);
+        else if (Key==__T("DATE-EXT"))               // bext
+        {
+            if (Encoded_Time.empty())
+                Encoded_Date=Value;
+            else
+                Fill(StreamKind_Common, 0, "Encoded_Date", Encoded_Date+__T(' ')+Encoded_Time);
+        }
         else if (Key==__T("DESCRIPTION"))            Fill(StreamKind_Common,   0, "Description", Value);
         else if (Key==__T("DISC"))                   Fill(StreamKind_Common,   0, "Part", Value, true);
         else if (Key==__T("DISCNUMBER"))             Fill(StreamKind_Common,   0, "Part", Value, true);
@@ -249,35 +285,74 @@ void File_VorbisCom::Data_Parse()
         else if (Key==__T("LYRICS"))                 Fill(StreamKind_Common,   0, "Lyrics", Value);
         else if (Key==__T("LWING_GAIN"))             Fill(StreamKind_Multiple, 0, "ReplayGain_Gain", Value.To_float64(), 2);
         else if (Key==__T("LOCATION"))               Fill(StreamKind_Common,   0, "Recorded/Location", Value);
-        else if (Key==__T("MUSICBRAINZ_ALBUMID"))    {}
-        else if (Key==__T("MUSICBRAINZ_ALBUMARTISTID")) {}
-        else if (Key==__T("MUSICBRAINZ_ARTISTID"))   {}
-        else if (Key==__T("MUSICBRAINZ_TRACKID"))    {}
+        else if (Key==__T("LYRICIST"))               Fill(StreamKind_Common,   0, "Lyricist", Value);
         else if (Key==__T("MUSICBRAINZ_SORTNAME"))   Fill(StreamKind_Common,   0, "Performer/Sort", Value);
-        else if (Key==__T("MUSICBRAINZ_DISCID"))     {}
         else if (Key==__T("ORGANIZATION"))           Fill(StreamKind_Common,   0, "Producer", Value);
+        else if (Key==__T("ORIGINATOR"))             Fill(StreamKind_Common,   0, "Producer", Value);
         else if (Key==__T("PERFORMER"))              Performers.push_back(Value);
         else if (Key==__T("PLAY_COUNT"))             Fill(StreamKind_Multiple, 0, "Played_Count", Value.To_int64u());
+        else if (Key==__T("PUBLISHER"))              Fill(StreamKind_Common,   0, "Publisher", Value);
         else if (Key==__T("RATING"))                 Fill(StreamKind_Multiple, 0, "Rating", Value);
         else if (Key==__T("REPLAYGAIN_ALBUM_GAIN"))  Fill(StreamKind_Common,   0, "Album_ReplayGain_Gain", Value.To_float64(), 2);
         else if (Key==__T("REPLAYGAIN_ALBUM_PEAK"))  Fill(StreamKind_Common,   0, "Album_ReplayGain_Peak", Value.To_float64(), 6);
-        else if (Key==__T("REPLAYGAIN_REFERENCE_LOUDNESS")) {}
         else if (Key==__T("REPLAYGAIN_TRACK_GAIN"))  Fill(StreamKind_Specific, 0, "ReplayGain_Gain",       Value.To_float64(), 2);
         else if (Key==__T("REPLAYGAIN_TRACK_PEAK"))  Fill(StreamKind_Specific, 0, "ReplayGain_Peak",       Value.To_float64(), 6);
+        else if (Key==__T("REFERENCE"))              Fill(StreamKind_Common,   0, "Producer_Reference", Value);
         else if (Key==__T("TITLE"))                  Fill(StreamKind_Common,   0, "Title", Value);
+        else if (Key==__T("TIME"))                   // bext
+        {
+            if (Encoded_Date.empty())
+                Encoded_Time=Value;
+            else
+                Fill(StreamKind_Common, 0, "Encoded_Date", Encoded_Date+__T(' ')+Encoded_Time);
+        }
+        else if (Key==__T("TIMEREFHIGH"))            // bext
+        {
+            if (TimeReference_Low.empty())
+                TimeReference_High=Value;
+            else
+            {
+                Fill(StreamKind_Specific, 0, "Delay", TimeReference_High.To_int64u()*0x100000000LL+TimeReference_High.To_int64u());
+                Fill(StreamKind_Specific, 0, "Delay_Source", "Container (bext)");
+            }
+        }
+        else if (Key==__T("TIMEREFLOW"))             // bext
+        {
+            if (TimeReference_High.empty())
+                TimeReference_Low=Value;
+            else
+            {
+                Fill(StreamKind_Specific, 0, "Delay", TimeReference_High.To_int64u()*0x100000000LL+TimeReference_High.To_int64u());
+                Fill(StreamKind_Specific, 0, "Delay_Source", "Container (bext)");
+            }
+        }
         else if (Key==__T("TOTALTRACKS"))            {if (Value!=Retrieve(StreamKind_Common, 0, "Track/Position_Total")) Fill(StreamKind_Common,   0, "Track/Position_Total", Value);}
         else if (Key==__T("TOTALDISCS"))             {if (Value!=Retrieve(StreamKind_Common, 0, "Part/Position_Total")) Fill(StreamKind_Common,   0, "Part/Position_Total", Value);}
         else if (Key==__T("TRACK_COMMENT"))          Fill(StreamKind_Multiple, 0, "Comment", Value);
         else if (Key==__T("TRACKNUMBER"))            Fill(StreamKind_Multiple, 0, "Track/Position", Value);
         else if (Key==__T("TRACKTOTAL"))             {if (Value!=Retrieve(StreamKind_Common, 0, "Track/Position_Total")) Fill(StreamKind_Multiple, 0, "Track/Position_Total", Value);}
+        else if (Key==__T("UMID"))                   // bext
+        {
+            ZtringList UMID;
+            UMID.Separator_Set(0, __T(","));
+            UMID.Write(Value);
+            if (UMID.size()==32 || UMID.size()==64)
+            {
+                Value.clear();
+                for (const auto& V : UMID)
+                    Value+=Ztring().From_CC2(V.To_int64s());
+                if (Value.find_first_not_of(__T('0'))!=string::npos)
+                    Fill(StreamKind_Common, 0, "UMID", __T("0x")+Value);
+            }
+        }
         else if (Key==__T("VERSION"))                Fill(StreamKind_Common,   0, "Track_More", Value);
         else if (Key==__T("BPM"))                    Fill(StreamKind_Common,   0, "BPM", Value);
         else if (Key==__T("WAVEFORMATEXTENSIBLE_CHANNEL_MASK"))
         {
             //This is an hexadecimal value
-            if (Value.size()>2 && Value[0]==__T('0') && (Value[1]==__T('x') || Value[1]==__T('X')))
+            if (Value.size()>2 && Value.size()<10 && Value[0]==__T('0') && (Value[1]==__T('x') || Value[1]==__T('X')))
             {
-                int16u ValueI=0;
+                int32u ValueI=0;
                 for (size_t Pos=2; Pos<Value.size(); Pos++)
                 {
                     ValueI*=16;
@@ -307,25 +382,34 @@ void File_VorbisCom::Data_Parse()
         else if (Key==__T("YEAR"))                   {if (Value!=Retrieve(StreamKind_Common,   0, "Recorded_Date")) Fill(StreamKind_Common,   0, "Recorded_Date", Value);}
         else if (Key==__T("METADATA_BLOCK_PICTURE")) //Used by some conversion tools from FLAC
         {
-            //Filling
-            Fill(Stream_General, 0, General_Cover, "Yes");
-            #if MEDIAINFO_ADVANCED
-                if (MediaInfoLib::Config.Flags1_Get(Flags_Cover_Data_base64))
-                {
-                    Fill(Stream_General, 0, General_Cover_Data, Value);
-                }
-            #endif //MEDIAINFO_ADVANCED
+            std::string Data_Raw(Base64::decode(Value.To_UTF8()));
+            auto Buffer_Save=Buffer;
+            auto Buffer_Offset_Save=Buffer_Offset;
+            auto Buffer_Size_Save=Buffer_Size;
+            auto Element_Offset_Save=Element_Offset;
+            auto Element_Size_Save=Element_Size;
+            Buffer=(const int8u*)Data_Raw.c_str();
+            Buffer_Offset=0;
+            Buffer_Size=Data_Raw.size();
+            Element_Offset=0;
+            Element_Size=Buffer_Size;
+            PICTURE();
+            Buffer=Buffer_Save;
+            Buffer_Offset=Buffer_Offset_Save;
+            Buffer_Size=Buffer_Size_Save;
+            Element_Offset=Element_Offset_Save;
+            Element_Size=Element_Size_Save;
         }
         else if (Key.find(__T("COVERART"))==0)
         {
-                 if (Key==__T("COVERARTCOUNT"))
-                ;
-            else if (Key.find(__T("COVERARTMIME"))==0)
-                Fill(Stream_General, 0, General_Cover_Mime, Value);
-            else if (Key.find(__T("COVERARTFILELINK"))==0)
-                Fill(Stream_General, 0, General_Cover_Data, __T("file://")+Value);
-            else if (Key.find(__T("COVERARTTYPE"))==0)
-                Fill(Stream_General, 0, General_Cover_Type, Id3v2_PictureType(Value.To_int8u()));
+            if (Key.rfind(__T("COVERARTMIME"), 0)==0)
+                Covers[Key.substr(12)].Mime=Value;
+            if (Key.rfind(__T("COVERARTFILELINK"), 0)==0)
+                Covers[Key.substr(16)].Link=Value;
+            if (Key.rfind(__T("COVERARTTYPE"), 0)==0)
+                Covers[Key.substr(12)].Type=Id3v2_PictureType(Value.To_int8u()).c_str();
+            if (Key.rfind(__T("COVERART"), 0)==0 && (Key.size()==8 || (Key[8]>='0' && Key[8]<='9')))
+                Covers[Key.substr(8)].Data=Base64::decode(Value.To_UTF8());
         }
         else if (Key.find(__T("CHAPTER"))==0)
         {
@@ -348,11 +432,84 @@ void File_VorbisCom::Data_Parse()
             }
             Fill(Stream_Menu, StreamPos_Last, Menu_Chapters_Pos_End, Count_Get(Stream_Menu, StreamPos_Last), 10, true);
         }
+        else if (VorbisCom_CheckToIgnore(Key.To_UTF8()))
+        {
+            #if MEDIAINFO_ADVANCED
+                Fill(Stream_General, 0, Key.To_UTF8().c_str(), Value);
+                Fill_SetOptions(Stream_General, 0, Key.To_UTF8().c_str(), "N NTY");
+            #endif //MEDIAINFO_ADVANCED
+        }
         else                                Fill(Stream_General, 0, comment.SubString(__T(""), __T("=")).To_UTF8().c_str(), Value);
     FILLING_END();
 
     if (user_comment_list_length==0)
+    {
+        for (const auto& Cover : Covers)
+        {
+            if (!Cover.second.Data.empty())
+            {
+                auto Buffer_Save=Buffer;
+                auto Buffer_Offset_Save=Buffer_Offset;
+                auto Buffer_Size_Save=Buffer_Size;
+                auto Element_Offset_Save=Element_Offset;
+                auto Element_Size_Save=Element_Size;
+                Buffer=(const int8u*)Cover.second.Data.c_str();
+                Buffer_Offset=0;
+                Buffer_Size=Cover.second.Data.size();
+                Element_Offset=0;
+                Element_Size=Buffer_Size;
+                Attachment("CoverArt", {}, Cover.second.Type, Cover.second.Mime, true);
+                Buffer=Buffer_Save;
+                Buffer_Offset=Buffer_Offset_Save;
+                Buffer_Size=Buffer_Size_Save;
+                Element_Offset=Element_Offset_Save;
+                Element_Size=Element_Size_Save;
+            }
+            else if (!Cover.second.Link.empty())
+            {
+                auto Type_String = __T("Type_") + Cover.second.Type;
+                auto Type_String2 = MediaInfoLib::Config.Language_Get(Type_String);
+                if (Type_String2 == Type_String)
+                    Type_String2 = Cover.second.Type;
+
+                Fill(Stream_General, 0, General_Cover, "Yes");
+                Fill(Stream_General, 0, General_Cover_Description, Cover.second.Link);
+                Fill(Stream_General, 0, General_Cover_Mime, Cover.second.Mime);
+                Fill(Stream_General, 0, General_Cover_Type, Type_String2);
+                Fill(Stream_General, 0, General_Cover_Data, __T("file://") + Cover.second.Link);
+            }
+        }
         Finish("VorbisCom");
+    }
+}
+
+//---------------------------------------------------------------------------
+void File_VorbisCom::PICTURE()
+{
+    //Parsing
+    //Copy of File_Flac::PICTURE()
+    int32u PictureType, MimeType_Size, Description_Size, Data_Size;
+    Ztring MimeType, Description;
+    Get_B4 (PictureType,                                        "Picture type"); Element_Info1(Id3v2_PictureType((int8u)PictureType));
+    Get_B4 (MimeType_Size,                                      "MIME type size");
+    Get_UTF8(MimeType_Size, MimeType,                           "MIME type");
+    Get_B4 (Description_Size,                                   "Description size");
+    Get_UTF8(Description_Size, Description,                     "Description");
+    Skip_B4(                                                    "Width");
+    Skip_B4(                                                    "Height");
+    Skip_B4(                                                    "Color depth");
+    Skip_B4(                                                    "Number of colors used");
+    Get_B4 (Data_Size,                                          "Data size");
+    if (Element_Offset+Data_Size>Element_Size)
+        return; //There is a problem
+    auto Element_Size_Save=Element_Size;
+    Element_Size=Element_Offset+Data_Size;
+
+    //Filling
+    Attachment("FLAC Picture", Description, Id3v2_PictureType(PictureType).c_str(), MimeType, true);
+
+    Element_Size=Element_Size_Save;
+    Skip_XX(Element_Size-Element_Offset,                        "(Unknown)");
 }
 
 //***************************************************************************

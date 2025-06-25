@@ -4,7 +4,7 @@ RequestExecutionLevel admin
 ; Some defines
 !define PRODUCT_NAME "MediaInfo"
 !define PRODUCT_PUBLISHER "MediaArea.net"
-!define PRODUCT_VERSION "20.09"
+!define PRODUCT_VERSION "25.04"
 !define PRODUCT_VERSION4 "${PRODUCT_VERSION}.0.0"
 !define PRODUCT_WEB_SITE "http://MediaArea.net/MediaInfo"
 !define COMPANY_REGISTRY "Software\MediaArea.net"
@@ -76,13 +76,13 @@ SetCompressor /FINAL /SOLID lzma
 
 ; Info
 VIProductVersion "${PRODUCT_VERSION4}"
-VIAddVersionKey "CompanyName" "${PRODUCT_PUBLISHER}"
-VIAddVersionKey "ProductName" "${PRODUCT_NAME}"
-VIAddVersionKey "ProductVersion" "${PRODUCT_VERSION4}"
-VIAddVersionKey "FileDescription" "All about your audio and video files"
-VIAddVersionKey "FileVersion" "${PRODUCT_VERSION4}"
-VIAddVersionKey "LegalCopyright" "${PRODUCT_PUBLISHER}"
-VIAddVersionKey "OriginalFilename" "${PRODUCT_NAME}_DLL_${PRODUCT_VERSION}_Windows_x64.exe"
+VIAddVersionKey /LANG=0 "CompanyName" "${PRODUCT_PUBLISHER}"
+VIAddVersionKey /LANG=0 "ProductName" "${PRODUCT_NAME}"
+VIAddVersionKey /LANG=0 "ProductVersion" "${PRODUCT_VERSION4}"
+VIAddVersionKey /LANG=0 "FileDescription" "All about your audio and video files"
+VIAddVersionKey /LANG=0 "FileVersion" "${PRODUCT_VERSION4}"
+VIAddVersionKey /LANG=0 "LegalCopyright" "${PRODUCT_PUBLISHER}"
+VIAddVersionKey /LANG=0 "OriginalFilename" "${PRODUCT_NAME}_DLL_${PRODUCT_VERSION}_Windows_x64.exe"
 BrandingText " "
 
 ; Modern UI end
@@ -108,8 +108,8 @@ FunctionEnd
 
 Section "SectionPrincipale" SEC01
   SetOutPath "$INSTDIR"
-  !insertmacro InstallLib REGDLL NOTSHARED NOREBOOT_NOTPROTECTED "..\..\Project\MSVC2017\x64\Release\MediaInfo.dll" $SYSDIR\MediaInfo.dll $SYSDIR
-  !insertmacro InstallLib REGDLL NOTSHARED NOREBOOT_NOTPROTECTED "..\..\Project\MSVC2017\x64\Release\MediaInfo_InfoTip.dll" $INSTDIR\MediaInfo_InfoTip.dll $INSTDIR
+  !insertmacro InstallLib REGDLL NOTSHARED NOREBOOT_NOTPROTECTED "..\..\Project\MSVC2022\x64\Release\MediaInfo.dll" $SYSDIR\MediaInfo.dll $SYSDIR
+  !insertmacro InstallLib REGDLL NOTSHARED NOREBOOT_NOTPROTECTED "..\..\Project\MSVC2022\x64\Release\MediaInfo_InfoTip.dll" $INSTDIR\MediaInfo_InfoTip.dll $INSTDIR
 SectionEnd
 
 Section -Post

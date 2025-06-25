@@ -27,17 +27,29 @@ namespace MediaInfoLib
 // Class File_Pcm
 //***************************************************************************
 
-class File_Pcm : public File__Analyze
+class File_Pcm_Base : public File__Analyze
+{
+public:
+    int8u   Endianness;
+    int8u   BitDepth;
+
+    //Constructor/destructor
+    File_Pcm_Base() : File__Analyze()
+    {
+        Endianness='\0';
+        BitDepth=0;
+    }
+};
+
+class File_Pcm : public File_Pcm_Base
 {
 public :
     //In
     int64u          Frame_Count_Valid;
     ZenLib::Ztring  Codec;
     int32u          SamplingRate;
-    int8u           BitDepth;
     int8u           BitDepth_Significant;
     int8u           Channels;
-    int8u           Endianness;
     int8u           Sign;
 
     //Buffer - Global
@@ -66,6 +78,11 @@ private :
     //Buffer - Per element
     void Header_Parse();
     void Data_Parse();
+
+    //Temp
+    #if MEDIAINFO_CONFORMANCE
+    bool IsNotSilence;
+    #endif
 };
 
 } //NameSpace

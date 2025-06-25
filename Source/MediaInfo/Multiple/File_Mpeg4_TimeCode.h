@@ -16,6 +16,8 @@
 namespace MediaInfoLib
 {
 
+struct stts_struct;
+
 //***************************************************************************
 // Class File_Mpeg4_TimeCode
 //***************************************************************************
@@ -27,17 +29,32 @@ public :
     int8u   NumberOfFrames;
     bool    DropFrame;
     bool    NegativeTimes;
+    int64u  FrameMultiplier;
     int64s  FirstEditOffset;
+    int64u  FirstEditDuration;
+    int64u  tkhd_Duration;
+    int64u  mvhd_Duration_TimeScale;
+    int64u  mdhd_Duration;
+    int64u  mdhd_Duration_TimeScale;
+    int64u  tmcd_Duration;
+    int64u  tmcd_Duration_TimeScale;
+    const std::vector<stts_struct>* DurationsPerFrame;
+    int64u  LastUsedOffset;
+    bool    AllFramesParsed;
 
     //Out
     int64s  Pos;
+    int64s  Pos_Last;
+    int64u  FrameMultiplier_Pos;
 
     //Constructor/Destructor
     File_Mpeg4_TimeCode();
 
 protected :
     //Streams management
+    void Streams_Accept();
     void Streams_Fill();
+    void Streams_Finish();
 
     //Buffer - Global
     void Read_Buffer_Init();

@@ -78,6 +78,14 @@ const char* Av1_frame_type[4] =
     "Switch",
 };
 
+//---------------------------------------------------------------------------
+static const char* Av1_chroma_sample_position[3] =
+{
+    "Type 0",
+    "Type 2",
+    "3",
+};
+
 //***************************************************************************
 // Constructor/Destructor
 //***************************************************************************
@@ -99,8 +107,6 @@ File_Av1::File_Av1()
     FrameIsAlwaysComplete=false;
 
     //Temp
-    maximum_content_light_level=0;
-    maximum_frame_average_light_level=0;
     sequence_header_Parsed=false;
     SeenFrameHeader=false;
 }
@@ -123,7 +129,7 @@ void File_Av1::Streams_Accept()
     Fill(Stream_Video, 0, Video_Format, "AV1");
 
     if (!Frame_Count_Valid)
-        Frame_Count_Valid=Config->ParseSpeed>=0.3?8:2;
+        Frame_Count_Valid=Config->ParseSpeed>=0.3?8:(IsSub?1:2);
 }
 
 //---------------------------------------------------------------------------
@@ -137,13 +143,15 @@ void File_Av1::Streams_Finish()
     Fill(Stream_Video, 0, Video_Format_Settings_GOP, GOP_Detect(GOP));
     if (!MasteringDisplay_ColorPrimaries.empty())
     {
+        Fill(Stream_Video, 0, "HDR_Format", "SMPTE ST 2086");
+        Fill(Stream_Video, 0, "HDR_Format_Compatibility", "HDR10");
         Fill(Stream_Video, 0, "MasteringDisplay_ColorPrimaries", MasteringDisplay_ColorPrimaries);
         Fill(Stream_Video, 0, "MasteringDisplay_Luminance", MasteringDisplay_Luminance);
     }
-    if (maximum_content_light_level)
-        Fill(Stream_Video, 0, "MaxCLL", Ztring::ToZtring(maximum_content_light_level) + __T(" cd/m2"));
-    if (maximum_frame_average_light_level)
-        Fill(Stream_Video, 0, "MaxFALL", Ztring::ToZtring(maximum_frame_average_light_level) + __T(" cd/m2"));
+    if (!maximum_content_light_level.empty())
+        Fill(Stream_Video, 0, "MaxCLL", maximum_content_light_level);
+    if (!maximum_frame_average_light_level.empty())
+        Fill(Stream_Video, 0, "MaxFALL", maximum_frame_average_light_level);
 }
 
 //***************************************************************************
@@ -199,15 +207,8 @@ void File_Av1::Header_Parse()
     }
     BS_End();
 
-    int64u obu_size = 0;
-    for (int8u i=0; i<8; i++)
-    {
-        int8u uleb128_byte;
-        Get_B1(uleb128_byte,                                    "uleb128_byte");
-        obu_size|=((uleb128_byte & 0x7f) << (i * 7));
-        if (!(uleb128_byte&0x80))
-            break;
-    }
+    int64u obu_size;
+    Get_leb128 (obu_size,                                       "obu_size");
 
     FILLING_BEGIN();
     Header_Fill_Size(Element_Offset+obu_size);
@@ -258,7 +259,7 @@ void File_Av1::sequence_header()
 {
     //Parsing
     int32u max_frame_width_minus_1, max_frame_height_minus_1;
-    int8u seq_profile, seq_level_idx[33], operating_points_cnt_minus_1, buffer_delay_length_minus_1, frame_width_bits_minus_1, frame_height_bits_minus_1, seq_force_screen_content_tools, BitDepth, color_primaries, transfer_characteristics, matrix_coefficients;
+    int8u seq_profile, seq_level_idx[33]{}, operating_points_cnt_minus_1, buffer_delay_length_minus_1, frame_width_bits_minus_1, frame_height_bits_minus_1, seq_force_screen_content_tools, BitDepth, color_primaries, transfer_characteristics, matrix_coefficients, chroma_sample_position;
     bool reduced_still_picture_header, seq_tier[33], timing_info_present_flag, decoder_model_info_present_flag, seq_choose_screen_content_tools, mono_chrome, color_range, color_description_present_flag, subsampling_x, subsampling_y;
     BS_Begin();
     Get_S1 ( 3, seq_profile,                                    "seq_profile"); Param_Info1(Av1_seq_profile(seq_profile));
@@ -415,7 +416,7 @@ void File_Av1::sequence_header()
                 }
             } 
             if (subsampling_x && subsampling_y)
-                Skip_S1( 2,                                     "chroma_sample_position");
+                Get_S1 ( 2, chroma_sample_position,             "chroma_sample_position");
         }
         Skip_SB(                                                "separate_uv_delta_q");
     Element_End0();
@@ -437,7 +438,11 @@ void File_Av1::sequence_header()
             Fill(Stream_Video, 0, Video_BitDepth, BitDepth);
             Fill(Stream_Video, 0, Video_ColorSpace, mono_chrome?"Y":((color_primaries==1 && transfer_characteristics==13 && matrix_coefficients==0)?"RGB":"YUV"));
             if (Retrieve(Stream_Video, 0, Video_ColorSpace)==__T("YUV"))
+            {
                 Fill(Stream_Video, 0, Video_ChromaSubsampling, subsampling_x?(subsampling_y?"4:2:0":"4:2:2"):"4:4:4"); // "!subsampling_x && subsampling_y" (4:4:0) not possible
+                if (subsampling_x && subsampling_y && chroma_sample_position)
+                    Fill(Stream_Video, 0, Video_ChromaSubsampling_Position, Av1_chroma_sample_position[chroma_sample_position-1]);
+            }
             if (color_description_present_flag)
             {
                 Fill(Stream_Video, 0, Video_colour_description_present, "Yes");
@@ -518,8 +523,8 @@ void File_Av1::tile_group()
 void File_Av1::metadata()
 {
     //Parsing
-    int16u metadata_type;
-    Get_B2 (metadata_type,                                      "metadata_type");
+    int64u metadata_type;
+    Get_leb128 (metadata_type,                                  "metadata_type");
 
     switch (metadata_type)
     {
@@ -533,15 +538,14 @@ void File_Av1::metadata()
 void File_Av1::metadata_hdr_cll()
 {
     //Parsing
-    Get_B2(maximum_content_light_level,                         "maximum_content_light_level");
-    Get_B2(maximum_frame_average_light_level,                   "maximum_frame_average_light_level");
+    Get_LightLevel(maximum_content_light_level, maximum_frame_average_light_level);
 }
 
 //---------------------------------------------------------------------------
 void File_Av1::metadata_hdr_mdcv()
 {
     //Parsing
-    Get_MasteringDisplayColorVolume(MasteringDisplay_ColorPrimaries, MasteringDisplay_Luminance);
+    Get_MasteringDisplayColorVolume(MasteringDisplay_ColorPrimaries, MasteringDisplay_Luminance, true);
 }
 
 //---------------------------------------------------------------------------
@@ -663,6 +667,32 @@ std::string File_Av1::GOP_Detect (std::string PictureTypes)
     }
 
     return string();
+}
+
+void File_Av1::Get_leb128(int64u& Info, const char* Name)
+{
+    Info=0;
+    for (int8u i=0; i<8; i++)
+    {
+        if (Element_Offset>=Element_Size)
+            break; // End of stream reached, not normal
+        int8u leb128_byte=BigEndian2int8u(Buffer+Buffer_Offset+(size_t)Element_Offset);
+        Element_Offset++;
+        Info|=(static_cast<int64u>(leb128_byte&0x7f)<<(i*7));
+        if (!(leb128_byte&0x80))
+        {
+            #if MEDIAINFO_TRACE
+                if (Trace_Activated)
+                {
+                    Param(Name, Info, i+1);
+                    Param_Info(__T("(")+Ztring::ToZtring(i+1)+__T(" bytes)"));
+                }
+            #endif //MEDIAINFO_TRACE
+            return;
+        }
+    }
+    Trusted_IsNot("Size is wrong");
+    Info=0;
 }
 
 //---------------------------------------------------------------------------

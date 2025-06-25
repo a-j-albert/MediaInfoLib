@@ -24,6 +24,12 @@
 #include "MediaInfo/Multiple/File_DvDif.h"
 #include "MediaInfo/MediaInfo_Config_MediaInfo.h"
 #include "MediaInfo/MediaInfo_Events_Internal.h"
+#include <algorithm>
+#include <fstream>
+//---------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------
+using namespace std;
 //---------------------------------------------------------------------------
 
 namespace MediaInfoLib
@@ -34,19 +40,40 @@ namespace MediaInfoLib
 //***************************************************************************
 
 //---------------------------------------------------------------------------
+void File_DvDif::Read_Buffer_Init()
+{
+    Analyze_Activated=Config->File_DvDif_Analysis_Get();
+    if (!IsSub)
+        FrameIsAlwaysComplete=Config->File_FrameIsAlwaysComplete_Get();
+    else
+        FrameIsAlwaysComplete=false;
+}
+
+//---------------------------------------------------------------------------
 void File_DvDif::Read_Buffer_Continue()
 {
     if (!Analyze_Activated)
-    {
-        if (Config->File_DvDif_Analysis_Get())
-            Analyze_Activated=true;
-        else
-            return;
-    }
+        return;
+
+    #if MEDIAINFO_DEMUX
+        if (Demux_UnpacketizeContainer && !Synchro_Manage()) // We need to manage manually synchronization in case of demux
+        {
+            Element_WaitForMoreData();
+            return; //Wait for more data
+        }
+    #endif // MEDIAINFO_DEMUX
 
     //Errors stats
     while (Buffer_Offset+80<=Buffer_Size)
     {
+        #if MEDIAINFO_DEMUX
+            if (Demux_TotalBytes && Buffer_TotalBytes+Buffer_Offset>=Demux_TotalBytes)
+            {
+                Element_WaitForMoreData();
+                return; //Wait for more data
+            }
+        #endif // MEDIAINFO_DEMUX
+
         //Quick search depends of SCT
         switch(Buffer[Buffer_Offset]&0xE0)
         {
@@ -56,14 +83,18 @@ void File_DvDif::Read_Buffer_Continue()
                        && Buffer[Buffer_Offset+1]==0x00
                        && Buffer[Buffer_Offset+2]==0x00)) // Ignore NULL
                     {
-                        if ((Buffer[Buffer_Offset+1]&0xF0)==0x00) //Dseq=0
+                        if ((Buffer[Buffer_Offset+1]&0xF0)==0x00 && Buffer[Buffer_Offset+2]==0x00) //Dseq=0 && DBN=0
                         {
                             if ((Buffer[Buffer_Offset+1]&0x08)==0x00) //FSC=0
                             {
                                 if ((Buffer[Buffer_Offset+1]&0x04)==0x04) //FSP=1
                                 {
                                     //Errors stats update
-                                    if (Speed_FrameCount_StartOffset!=(int64u)-1)
+                                    if (Speed_FrameCount_StartOffset!=(int64u)-1
+                                        #if MEDIAINFO_ADVANCED
+                                         && !FrameIsAlwaysComplete
+                                        #endif
+                                    )
                                         Errors_Stats_Update();
                                     Speed_FrameCount_StartOffset=File_Offset+Buffer_Offset;
 
@@ -74,7 +105,7 @@ void File_DvDif::Read_Buffer_Continue()
                                 else
                                     FSP_WasNotSet=true;
                             }
-                            else
+                            else if (FSC_WasNotSet_Sum==0 && FSC_WasSet_Sum==0)
                                 FSC_WasSet=true;
                         }
                     }
@@ -82,9 +113,117 @@ void File_DvDif::Read_Buffer_Continue()
                 break;
             case 0x20 : //SCT=1 (Subcode)
                 {
-                    FSC=(Buffer[Buffer_Offset+1  ]&0x08);
+                    FSC=(Buffer[Buffer_Offset+1  ]&0x08)?true:false;
+                    FSP=(Buffer[Buffer_Offset+1  ]&0x04)?true:false;
                     if (!FSC && ssyb_AP3!=(int8u)-1)
                         ssyb_AP3=(Buffer[Buffer_Offset+3]>>4)&0x7;
+                    if (!FSC && FSP)
+                    {
+                        if (ssyb_AP3!=(int8u)-1)
+                            ssyb_AP3=(Buffer[Buffer_Offset+3]>>4)&0x7;
+                        int8u AbstBf[6];
+                        for (int i=0; i<6; i++)
+                            AbstBf[i]=((Buffer[Buffer_Offset+8*i+3]&0xF)<< 4)
+                                     |((Buffer[Buffer_Offset+8*i+4]    )>> 4);
+                        int32u Abst_New[2];
+                        for (int i=0; i<2; i++)
+                            Abst_New[i]=(((int32u)AbstBf[i*3+0])>> 1)
+                                       |(((int32u)AbstBf[i*3+1])<< 7)
+                                       |(((int32u)AbstBf[i*3+2])<<15);
+                        if (Abst_New[0]!=0x7FFFFF                               //Not max
+                         && Abst_New[1]==Abst_New[0])                           //Discarding if first abst value is not same as second abst value, in order to avoid glitches found in some files
+                        {
+                            int32u Abst_Current=(AbstBf_Current>>1)&0x7FFFFF;
+                            if (Abst_New[0]<Abst_Current)
+                            {
+                                int32s Dseq_Offset=(int32s)((File_Offset+Buffer_Offset-Speed_FrameCount_StartOffset)/12000);
+                                int32s Abst=(int32s)Abst_New[0];
+                                Abst-=Dseq_Offset;
+                                AbstBf_Current|=(1<<25); //Abst presence flag
+                                AbstBf_Current&=~(0x7FFFFF<<1);
+                                AbstBf_Current|=((Abst&0x7FFFFF)<<1);
+                            }
+                            AbstBf_Current|=(1<<24); //Bf presence flag
+                            if (AbstBf[0]&1 && !(AbstBf_Current&1))
+                                AbstBf_Current|=1;
+                        }
+
+                        //Try to find a suitable and trustable Abst
+                        if (Speed_FrameCount_StartOffset==-1)
+                            Speed_FrameCount_StartOffset=0;
+                        int32s Abst_First=INT_MAX;
+                        int32s Abst_Previous=(AbstBf_Previous>>1)&0x7FFFFF;
+                        int32s Abst_Theory_Max=Abst_Previous+(DSF?12:10)*(FSC_WasSet?2:1)*2; //Max 2x the expected gap
+                        for (int i=0; i<2; i++)
+                        {
+                            int32s AbstBf0=(int32s)AbstBf[i*3+0];
+                            int32s AbstBf1=(int32s)AbstBf[i*3+1];
+                            int32s AbstBf2=(int32s)AbstBf[i*3+2];
+                            if (AbstBf0!=0xFF || AbstBf1!=0xFF || AbstBf2!=0xFF)
+                            {
+                                int32s Abst_TrustMultiplier=1;
+                                if (AbstBf0!=0xFF) // If 1st byte not 0xFF
+                                    Abst_TrustMultiplier*=2;
+                                if (AbstBf1!=0xFF) // If 2nd byte not 0xFF
+                                    Abst_TrustMultiplier*=2;
+                                if (AbstBf2!=0xFF) // If 3rd byte not 0xFF
+                                    Abst_TrustMultiplier*=2;
+                                int32s Abst=(AbstBf0>> 1)
+                                           |(AbstBf1<< 7)
+                                           |(AbstBf2<<15);
+                                if (Abst!=0xFFFF) // abst of 0xFFFF often seen as not a real value 
+                                    Abst_TrustMultiplier*=2;
+                                if (i)
+                                {
+                                    if (Abst==Abst_First) // If same value in the same block
+                                        Abst_TrustMultiplier*=3;
+                                }
+                                else
+                                {
+                                    Abst_First=Abst;
+                                }
+
+                                if (AbstBf2==0xFF) // Consider all values equal or above 0x7F8000 (highest byte 0xFF) as negative
+                                    Abst-=0x800000;
+                                int32s StoredAbst=Abst;
+                                int32s Dseq_Offset=(int32s)((File_Offset+Buffer_Offset-Speed_FrameCount_StartOffset)/12000);
+                                Abst-=Dseq_Offset;
+                                if (Abst<0) // If negative value, we don't really trust (it is very unliky, except for syntheticly created abst)
+                                    Abst_TrustMultiplier/=16;
+                                AbstBf_Current_Weighted.bf[AbstBf0&1]+=Abst_TrustMultiplier;
+                                int32s Abst_TrustMultiplier_Save=Abst_TrustMultiplier;
+
+                                for (int j=0; j<=1; j++) // Test first with standard (offset of 10, in NTSC) then non standard (offset of 15, in NTSC)
+                                {
+                                    if (j)
+                                    {
+                                        Abst_TrustMultiplier=Abst_TrustMultiplier_Save;
+                                        Abst-=Dseq_Offset/2+Dseq_Offset%2;
+                                    }
+                                    bool IsFound=false;
+                                    size_t k=0;
+                                    for (; k<AbstBf_Current_Weighted.abst[j].size(); k++)
+                                    {
+                                        if (AbstBf_Current_Weighted.abst[j][k].Value==Abst)
+                                        {
+                                            AbstBf_Current_Weighted.abst[j][k].Trust+=Abst_TrustMultiplier;
+                                            Abst_TrustMultiplier=0;
+                                        }
+                                        if (AbstBf_Current_Weighted.abst[j][k].Value<=Abst)
+                                            break;
+                                    }
+                                    if (Abst_TrustMultiplier)
+                                    {
+                                        abst_bf::value_trust NewAbst;
+                                        NewAbst.Value=Abst;
+                                        NewAbst.Trust=Abst_TrustMultiplier;
+                                        AbstBf_Current_Weighted.abst[j].insert(AbstBf_Current_Weighted.abst[j].begin()+k, NewAbst);
+                                    }
+                                    AbstBf_Current_Weighted.StoredValues.insert(StoredAbst);
+                                }
+                            }
+                        }
+                    }
                     for (size_t Pos=0; Pos<48; Pos+=8)
                     {
                         int8u PackType=Buffer[Buffer_Offset+3+Pos+3];
@@ -104,21 +243,6 @@ void File_DvDif::Read_Buffer_Continue()
                             int8u Hours                     =((Buffer[Buffer_Offset+3+Pos+3+4]&0x30)>>4)*10
                                                            + ((Buffer[Buffer_Offset+3+Pos+3+4]&0x0F)   )   ;
 
-                            if (Frames ==0x00
-                             && Seconds==0x00
-                             && Minutes==0x00
-                             && Hours  ==0x00
-                             && Buffer[Buffer_Offset+3+Pos+3+1]==0x00
-                             && Buffer[Buffer_Offset+3+Pos+3+2]==0x00
-                             && Buffer[Buffer_Offset+3+Pos+3+3]==0x00
-                             && Buffer[Buffer_Offset+3+Pos+3+4]==0x00
-                             )
-                            {
-                                Frames =45;
-                                Seconds=85;
-                                Minutes=85;
-                                Hours  =45;
-                            }
                             if (Frames !=45
                              && Seconds!=85
                              && Minutes!=85
@@ -334,7 +458,14 @@ void File_DvDif::Read_Buffer_Continue()
                             bool FSC=(Buffer[Buffer_Offset+1  ]&0x08)?true:false;
                             bool FSP=(Buffer[Buffer_Offset+1  ]&0x04)?true:false;
                             if (!FSC && FSP) // Only first part of DV50/DV100
+                            {
+                                FrameInfo.DTS=FrameInfo.PTS=Speed_FrameCount_system[0]*100100000/3+Speed_FrameCount_system[1]*40000000;
+                                Speed_FrameCount_system[system]++;
+                                int64u NextPTS=Speed_FrameCount_system[0]*100100000/3+Speed_FrameCount_system[1]*40000000;
+                                Speed_FrameCount_system[system]--;
+                                FrameInfo.DUR=NextPTS-FrameInfo.PTS; // PTS + DUR = PTS of next frame, DUR rounding is adapted in order to have the exact PTS of next frame
                                 Demux(Buffer+Buffer_Offset+3+Pos+1, 4, ContentType_MainStream);
+                            }
                             Captions_Flags.set(Caption_Present);
 
                             // Quick parity check
@@ -388,6 +519,8 @@ void File_DvDif::Read_Buffer_Continue()
                         REC_END=(Buffer[Buffer_Offset+3+2]&0x40)?true:false;
                         REC_IsValid=true;
                         Coherency_Flags.set(Coherency_audio_control);
+
+                        DirectionSpeed.push_back(Buffer[Buffer_Offset+3+3]);
                     }
 
                     //audio_recdate
@@ -454,43 +587,59 @@ void File_DvDif::Read_Buffer_Continue()
                     }
 
                     //Audio errors
-                    if (Buffer[Buffer_Offset+8]==0x80)
+                    auto BlockStatus_Pos=(File_Offset+Buffer_Offset-Speed_FrameCount_StartOffset)/80;
+                    if (BlockStatus_Pos<BlockStatus_MaxSize)
                     {
-                        bool Contains_8000=true;
+                        bool Contains_8000=true; // Note: standards indicate these values so old code was using only theses values, now checking all values (except 0 or -1 as it is for silent audio)
                         bool Contains_800800=true;
-                        for (size_t i=8; i<80; i+=2)
-                            if (Buffer[Buffer_Offset+i]  !=0x80
-                             || Buffer[Buffer_Offset+i+1]!=0x00)
+                        int8u ToCheck_8000_0=Buffer[Buffer_Offset+8];
+                        int8u ToCheck_8000_1=Buffer[Buffer_Offset+9];
+                        for (size_t i=10; i<80; i+=2)
+                            if (Buffer[Buffer_Offset+i  ]!=ToCheck_8000_0
+                             || Buffer[Buffer_Offset+i+1]!=ToCheck_8000_1)
                             {
                                 Contains_8000=false;
                                 break;
                             }
-                        for (size_t i=8; i<80; i+=3)
-                            if (Buffer[Buffer_Offset+i]  !=0x80
-                             || Buffer[Buffer_Offset+i+1]!=0x80
-                             || Buffer[Buffer_Offset+i+2]!=0x00)
+                        int8u Contains_800800_0=Buffer[Buffer_Offset+ 8];
+                        int8u Contains_800800_1=Buffer[Buffer_Offset+ 9];
+                        int8u Contains_800800_2=Buffer[Buffer_Offset+10];
+                        for (size_t i=11; i<80; i+=3)
+                            if (Buffer[Buffer_Offset+i  ]!=Contains_800800_0
+                             || Buffer[Buffer_Offset+i+1]!=Contains_800800_1
+                             || Buffer[Buffer_Offset+i+2]!=Contains_800800_2)
                             {
                                 Contains_800800=false;
                                 break;
                             }
-                        if ((/*QU==0 &&*/ Contains_8000)    //16-bit 0x8000
+                        if ((QU==0 && Contains_8000)    //16-bit 0x8000
                          || (QU==1 && Contains_800800)  //12-bit 0x800
                          || (QU==(int8u)-1 && (Contains_8000 || Contains_800800))) //In case of QU is not already detected
                         {
                             uint8_t Channel=(Buffer[Buffer_Offset+1]&0x08)?1:0; //FSC
                             uint8_t Dseq=Buffer[Buffer_Offset+1]>>4;
-                            if (Channel>=Audio_Errors.size())
-                                Audio_Errors.resize(Channel+1);
-                            if (Audio_Errors[Channel].empty())
-                                Audio_Errors[Channel].resize(Dseq_Count);
-                            Audio_Errors[Channel][Dseq]++;
-                            BlockStatus[(File_Offset+Buffer_Offset-Speed_FrameCount_StartOffset)/80]=BlockStatus_NOK;
+                            bool Is16=(QU==(int8u)-1)?(Contains_8000):(QU==0);
+                            int16u Value;
+                            if (Is16)
+                                Value=(ToCheck_8000_0<<8)|ToCheck_8000_1;
+                            else
+                                Value=(Contains_800800_0<<4)|(Contains_800800_1>>4); // Only one half
+                            if (Value && Value!=(0xFFFF>>(Is16?0:4))) // 0 and -1 are often used as silence
+                            {
+                                if (Channel>=Audio_Errors.size())
+                                    Audio_Errors.resize(Channel+1);
+                                if (Audio_Errors[Channel].empty())
+                                    Audio_Errors[Channel].resize(Dseq_Count);
+                                Audio_Errors[Channel][Dseq].Count++;
+                                Audio_Errors[Channel][Dseq].Values.insert(Value);
+                                BlockStatus[BlockStatus_Pos]=BlockStatus_NOK;
+                            }
+                            else
+                                BlockStatus[BlockStatus_Pos]=BlockStatus_OK;
                         }
                         else
-                            BlockStatus[(File_Offset+Buffer_Offset-Speed_FrameCount_StartOffset)/80]=BlockStatus_OK;
+                            BlockStatus[BlockStatus_Pos]=BlockStatus_OK;
                     }
-                    else
-                        BlockStatus[(File_Offset+Buffer_Offset-Speed_FrameCount_StartOffset)/80]=BlockStatus_OK;
                 }
                 break;
 
@@ -536,7 +685,9 @@ void File_DvDif::Read_Buffer_Continue()
                             Video_STA_Errors_ByDseq[(Dseq<<4)|STA_Error]++;
                         }
                     }
-                    BlockStatus[(File_Offset+Buffer_Offset-Speed_FrameCount_StartOffset)/80]=STA_Error?BlockStatus_NOK:BlockStatus_OK;
+                    auto BlockStatus_Pos=(File_Offset+Buffer_Offset-Speed_FrameCount_StartOffset)/80;
+                    if (BlockStatus_Pos<BlockStatus_MaxSize)
+                        BlockStatus[BlockStatus_Pos]=STA_Error?BlockStatus_NOK:BlockStatus_OK;
                 }
                 break;
         }
@@ -546,6 +697,10 @@ void File_DvDif::Read_Buffer_Continue()
          && Buffer[Buffer_Offset+1]==0x00
          && Buffer[Buffer_Offset+2]==0x00)
            Speed_Contains_NULL++;
+        if ((Buffer[Buffer_Offset+1]&0x08)==0x00) //FSC=0
+            FSC_WasNotSet_Sum++;
+        else
+            FSC_WasSet_Sum++;
 
         Buffer_Offset+=80;
     }
@@ -553,6 +708,11 @@ void File_DvDif::Read_Buffer_Continue()
     if (!Status[IsAccepted])
         File__Analyze::Buffer_Offset=0;
     Config->State_Set(((float)File_Offset)/File_Size);
+    #if MEDIAINFO_ADVANCED
+        if (FrameIsAlwaysComplete && Speed_FrameCount_StartOffset!=(int64u)-1)
+            Errors_Stats_Update();
+    #endif
+    SCT_Old=4; // For sync
 }
 
 void File_DvDif::Errors_Stats_Update()
@@ -566,6 +726,12 @@ void File_DvDif::Errors_Stats_Update()
         else
             return;
     }
+
+    FrameInfo.DTS=FrameInfo.PTS=Speed_FrameCount_system[0]*100100000/3+Speed_FrameCount_system[1]*40000000;
+    Speed_FrameCount_system[system]++;
+    int64u NextPTS=Speed_FrameCount_system[0]*100100000/3+Speed_FrameCount_system[1]*40000000;
+    Speed_FrameCount_system[system]--;
+    FrameInfo.DUR=NextPTS-FrameInfo.PTS; // PTS + DUR = PTS of next frame, DUR rounding is adapted in order to have the exact PTS of next frame
 
     Ztring Errors_Stats_Line;
     {
@@ -612,8 +778,27 @@ void File_DvDif::Errors_Stats_Update()
                 ChannelInfo=NewChannelInfo;
         }
 
+        // Coherency checking
+        bool FSC_Incoherency=false;
+        if (FSC_WasNotSet_Sum || FSC_WasSet_Sum)
+        {
+            int FSC_Diff=FSC_WasSet_Sum-FSC_WasNotSet_Sum;
+            if (FSC_Diff<0)
+                FSC_Diff=-FSC_Diff;
+            if (FSC_Diff*2 < FSC_WasSet_Sum+FSC_WasNotSet_Sum)
+            {
+                FSC_WasSet=false;
+                FSC_Incoherency=true;
+            }
+            else
+            {
+                FSC_WasSet=FSC_WasSet_Sum>FSC_WasNotSet_Sum;
+            }
+        }
+
         EVENT_BEGIN(DvDif, Change, 0)
             Event.StreamOffset=Speed_FrameCount_StartOffset;
+            Event.FrameNumber=Speed_FrameCount;
             switch (video_source_stype)
             {
                 case 0x00 :
@@ -631,8 +816,17 @@ void File_DvDif::Errors_Stats_Update()
                             Event.Height=720;
                             break;
                 default   : 
-                            Event.Width=0;
-                            Event.Height=0;
+                            //Relying on other sources for the window size
+                            if (!FSC_WasSet) //Original DV 25 Mbps
+                            {
+                                Event.Width=720;
+                                Event.Height=system?576:480; //Considering DV 25 Mbps as SD for sure, so similar to stype of 0
+                            }
+                            else
+                            {
+                                Event.Width=0;
+                                Event.Height=0;
+                            }
             }
             if (video_source_stype!=(int8u)-1)
             {
@@ -650,6 +844,7 @@ void File_DvDif::Errors_Stats_Update()
                     {
                         switch (video_source_stype)
                         {
+                            case  1 : //stype of 1 is not in spec, but considering it as same as stype of 0
                             case  0 : if (APT==0)
                                         Event.VideoChromaSubsampling=1;      //PAL 25 Mbps (IEC 61834)
                                       else
@@ -659,6 +854,8 @@ void File_DvDif::Errors_Stats_Update()
                         }
                     }
                 }
+                else if (FSC_Incoherency)
+                    Event.VideoChromaSubsampling=(int32u)-1;
                 else //DV 50 Mbps and 100 Mbps
                     Event.VideoChromaSubsampling=2;
             }
@@ -755,6 +952,7 @@ void File_DvDif::Errors_Stats_Update()
             Event.RecordedDateTime1=0;
             Event.RecordedDateTime2=0;
             int16u RecordedDateTime2Fixed=0;
+            int16u MoreFlags=0;
             Event.Arb=0;
             Event.Verbosity=0;
             Event.Errors=NULL;
@@ -828,11 +1026,106 @@ void File_DvDif::Errors_Stats_Update()
             Errors_Stats_Line+=__T("XX:XX:XX:XX");
             #if MEDIAINFO_EVENTS
                 Event.TimeCode|=0x7FFFF<<8;
-                //Event.TimeCode|=Speed_TimeCode_Current.Time.DropFrame<<7;
+                //Event.TimeCode|=Speed_TimeCode_Current.Time.DropFrame()<<7;
                 Event.TimeCode|=0x3F;
             #endif //MEDIAINFO_EVENTS
         }
         Errors_Stats_Line+=__T('\t');
+
+        //Absolute track number + Blank flag
+        for (int j=0; j<=1; j++) // Test first with standard (offset of 10, in NTSC) then non standard (offset of 15, in NTSC)
+        {
+            vector<abst_bf::value_trust>& abst=AbstBf_Current_Weighted.abst[j];
+            //Remove crazy values
+            if (AbstBf_Current_Weighted.abst[j].empty())
+                continue;
+            size_t k;
+            for (k=1; k<abst.size(); k++)
+            {
+                if (abst[k].Value-abst[k-1].Value<10+j*5)
+                    break;
+                abst.erase(abst.begin(), abst.begin()+k);
+            }
+            for (k=AbstBf_Current_Weighted.abst[j].size()-1; k; k--)
+            {
+                if (AbstBf_Current_Weighted.abst[j][k].Value-AbstBf_Current_Weighted.abst[j][k-1].Value>10+j*5)
+                    AbstBf_Current_Weighted.abst[j].resize(k);
+            }
+            
+            //Remove less trustable values
+            sort(AbstBf_Current_Weighted.abst[j].begin(), AbstBf_Current_Weighted.abst[j].end());
+            for (k=1; k<abst.size(); k++)
+            {
+                if (abst[k].Trust!=abst[k-1].Trust)
+                    break;
+            }
+            if (k>abst.size())
+                abst.erase(abst.begin()+k);
+        }
+        int j=0;
+        if (AbstBf_Current_Weighted.abst[1].size()<AbstBf_Current_Weighted.abst[0].size())
+            j=1;
+        int32s AbstBf_Current_MaxAbst=0xFFFFFF;
+        if (!AbstBf_Current_Weighted.abst[j].empty())
+        {
+            int32s abst=AbstBf_Current_Weighted.abst[j][0].Value;
+            if (AbstBf_Current_Weighted.abst[j].size()>1 && !AbstBf_Current_Weighted.StoredValues.empty())
+            {
+                //Difficult to trust one value other another one, we use the smallest trustable stored value
+                for (set<int32s>::iterator StoredValue=AbstBf_Current_Weighted.StoredValues.begin(); ; ++StoredValue)
+                    if (abst<=*StoredValue)
+                    {
+                        abst=*StoredValue;
+                        AbstBf_Current_MaxAbst=abst;
+                        for (; StoredValue!=AbstBf_Current_Weighted.StoredValues.end(); ++StoredValue)
+                        {
+                            if (*StoredValue>=(abst+(DSF?12:10)*(FSC_WasSet?2:1)*2)) //Max 2x the expected gap
+                                break;
+                            AbstBf_Current_MaxAbst=*StoredValue;
+                        }
+                        break;
+                    }
+
+            }
+            AbstBf_Current&=~(0x7FFFFF<<1);
+            AbstBf_Current|=((abst&0x7FFFFF)<<1);
+        }
+        int32s Abst_Previous=(int32s)((AbstBf_Previous>>1)&0x7FFFFF);
+        if (((AbstBf_Previous>>16)&0xFF)==0xFF) // Consider all values equal or above 0x7F8000 (highest byte 0xFF) as negative
+            Abst_Previous-=0x800000;
+        int32s Abst_Current=(int32s)((AbstBf_Current>>1)&0x7FFFFF);
+        if (((AbstBf_Current >>16)&0xFF)==0xFF) // Consider all values equal or above 0x7F8000 (highest byte 0xFF) as negative
+            Abst_Current-=0x800000;
+        if (((AbstBf_Previous>>25)&1) && ((AbstBf_Current>>25)&1)) // If previous value is available
+        {
+            if (Abst_Current==Abst_Previous)
+                AbstBf_Current|=(1<<31); //Repeat
+            else if (Abst_Current<Abst_Previous
+                  || Abst_Current>=(Abst_Previous+(DSF?12:10)*(FSC_WasSet?2:1)*2)) //Max 2x the expected gap
+            {
+                if (AbstBf_Previous_MaxAbst==0xFFFFFF || Abst_Current>AbstBf_Previous_MaxAbst+(DSF?12:10)*(FSC_WasSet?2:1))
+                    AbstBf_Current|=(1<<30); //Non-consecutive
+            }
+        }
+        int32s Abst_Gap=(DSF?12:10)*(FSC_WasSet?2:1);
+        if (((AbstBf_Previous>>25)&1) && !((AbstBf_Current>>25)&1))
+        {
+            if (AbstBf_Current_Weighted.Frames_NonStandard[0]>Speed_FrameCount/2)
+                Abst_Gap=Abst_Gap/2;
+            if (AbstBf_Current_Weighted.Frames_NonStandard[1]>Speed_FrameCount/2)
+                Abst_Gap=Abst_Gap*3/2;
+            AbstBf_Previous+=Abst_Gap<<1; //Theoritical AbstBf
+        }
+        else
+        {
+            if (Abst_Previous+Abst_Gap/2==Abst_Current)
+                AbstBf_Current_Weighted.Frames_NonStandard[0]++;
+            if (Abst_Previous+Abst_Gap*3/2==Abst_Current)
+                AbstBf_Current_Weighted.Frames_NonStandard[1]++;
+            AbstBf_Previous=AbstBf_Current;
+        }
+        AbstBf_Previous_MaxAbst=AbstBf_Current_MaxAbst;
+        AbstBf_Current_Weighted.reset();
 
         //Timecode order coherency
         if (!Speed_TimeCode_IsValid && Speed_TimeCode_Current.IsValid
@@ -858,10 +1151,14 @@ void File_DvDif::Errors_Stats_Update()
                 Errors_AreDetected=true;
         }
         else if (Speed_TimeCode_IsValid && Speed_TimeCode_Current.IsValid && Speed_TimeCode_Current_Theory.IsValid
-              && (   Speed_TimeCode_Current.Time.Frames !=Speed_TimeCode_Current_Theory.Time.Frames
-                  || Speed_TimeCode_Current.Time.Seconds!=Speed_TimeCode_Current_Theory.Time.Seconds
-                  || Speed_TimeCode_Current.Time.Minutes!=Speed_TimeCode_Current_Theory.Time.Minutes
-                  || Speed_TimeCode_Current.Time.Hours  !=Speed_TimeCode_Current_Theory.Time.Hours))
+              && !(   Speed_TimeCode_Current.Time.Frames ==Speed_TimeCode_Current_Theory.Time.Frames
+                   && Speed_TimeCode_Current.Time.Seconds==Speed_TimeCode_Current_Theory.Time.Seconds
+                   && Speed_TimeCode_Current.Time.Minutes==Speed_TimeCode_Current_Theory.Time.Minutes
+                   && Speed_TimeCode_Current.Time.Hours  ==Speed_TimeCode_Current_Theory.Time.Hours)
+              && !(Speed_TimeCode_Current.Time.Frames == Speed_TimeCode_Current_Theory2.Time.Frames
+                   && Speed_TimeCode_Current.Time.Seconds==Speed_TimeCode_Current_Theory2.Time.Seconds
+                   && Speed_TimeCode_Current.Time.Minutes==Speed_TimeCode_Current_Theory2.Time.Minutes
+                   && Speed_TimeCode_Current.Time.Hours  ==Speed_TimeCode_Current_Theory2.Time.Hours))
         {
             size_t Speed_TimeCodeZ_Pos=Speed_TimeCodeZ.size();
             Speed_TimeCodeZ.resize(Speed_TimeCodeZ_Pos+1);
@@ -873,8 +1170,48 @@ void File_DvDif::Errors_Stats_Update()
             Errors_Stats_Line+=__T('N');
             #if MEDIAINFO_EVENTS
                 Event.TimeCode|=1<<30;
+                int32u Time_Current=(((int32u)Speed_TimeCode_Current.Time.Hours          )<<24)
+                                   |(((int32u)Speed_TimeCode_Current.Time.Minutes        )<<16)
+                                   |(((int32u)Speed_TimeCode_Current.Time.Seconds        )<< 8)
+                                   |(((int32u)Speed_TimeCode_Current.Time.Frames         )    );
+                int32u Time_Theory =(((int32u)Speed_TimeCode_Current_Theory2.Time.Hours  )<<24)
+                                   |(((int32u)Speed_TimeCode_Current_Theory2.Time.Minutes)<<16)
+                                   |(((int32u)Speed_TimeCode_Current_Theory2.Time.Seconds)<< 8)
+                                   |(((int32u)Speed_TimeCode_Current_Theory2.Time.Frames )    );
+                if (Time_Current<Time_Theory)
+                    MoreFlags|=1<<1;
             #endif //MEDIAINFO_EVENTS
-            Speed_TimeCode_Current_Theory=Speed_TimeCode_Current;
+            Speed_TimeCode_Current_Theory2=Speed_TimeCode_Current; // Change it only once
+            int8u Frames_Max;
+            if (video_source_stype!=(int8u)-1)
+                Frames_Max=system?25:30;
+            else
+                Frames_Max=DSF?25:30;
+
+            Speed_TimeCode_Current_Theory2.Time.Frames++;
+            if (Speed_TimeCode_Current_Theory2.Time.Frames>=Frames_Max)
+            {
+                Speed_TimeCode_Current_Theory2.Time.Seconds++;
+                Speed_TimeCode_Current_Theory2.Time.Frames=0;
+                if (Speed_TimeCode_Current_Theory2.Time.Seconds>=60)
+                {
+                    Speed_TimeCode_Current_Theory2.Time.Seconds=0;
+                    Speed_TimeCode_Current_Theory2.Time.Minutes++;
+
+                    if (!DSF && Speed_TimeCode_Current_Theory2.Time.DropFrame && Speed_TimeCode_Current_Theory2.Time.Minutes%10)
+                        Speed_TimeCode_Current_Theory2.Time.Frames=2; //frames 0 and 1 are dropped for every minutes except 00 10 20 30 40 50
+
+                    if (Speed_TimeCode_Current_Theory2.Time.Minutes>=60)
+                    {
+                        Speed_TimeCode_Current_Theory2.Time.Minutes=0;
+                        Speed_TimeCode_Current_Theory2.Time.Hours++;
+                        if (Speed_TimeCode_Current_Theory2.Time.Hours>=24)
+                        {
+                            Speed_TimeCode_Current_Theory2.Time.Hours=0;
+                        }
+                    }
+                }
+            }
             TimeCode_Disrupted=true;
             Errors_AreDetected=true;
         }
@@ -1025,6 +1362,20 @@ void File_DvDif::Errors_Stats_Update()
             Errors_Stats_Line+=__T('N');
             #if MEDIAINFO_EVENTS
                 Event.RecordedDateTime1|=1<<30;
+                int64u Time_Current=(((int64u)Speed_RecDate_Current.Years               )<<36)
+                                   |(((int64u)Speed_RecDate_Current.Months              )<<32)
+                                   |(((int64u)Speed_RecDate_Current.Days                )<<24)
+                                   |(((int64u)Speed_RecTime_Current.Time.Hours          )<<16)
+                                   |(((int64u)Speed_RecTime_Current.Time.Minutes        )<< 8)
+                                   |(((int64u)Speed_RecTime_Current.Time.Seconds        )    );
+                int64u Time_Theory =(((int64u)Speed_RecDate_Current_Theory2.Years       )<<36)
+                                   |(((int64u)Speed_RecDate_Current_Theory2.Months      )<<32)
+                                   |(((int64u)Speed_RecDate_Current_Theory2.Days        )<<24)
+                                   |(((int64u)Speed_RecTime_Current_Theory2.Time.Hours  )<<16)
+                                   |(((int64u)Speed_RecTime_Current_Theory2.Time.Minutes)<< 8)
+                                   |(((int64u)Speed_RecTime_Current_Theory2.Time.Seconds));
+                if (Time_Current<Time_Theory)
+                    MoreFlags|=1<<0;
             #endif //MEDIAINFO_EVENTS
             if (!REC_IsValid || REC_ST)
             {
@@ -1070,8 +1421,7 @@ void File_DvDif::Errors_Stats_Update()
             #if MEDIAINFO_EVENTS
                 Event.Arb|=1<<7;
             #endif //MEDIAINFO_EVENTS
-            if (Speed_Arb_Current.Value!=0xF)
-                Arb_AreDetected=true;
+            Arb_AreDetected=true;
 
             Speed_Arb_Current_Theory.IsValid=false;
         }
@@ -1081,6 +1431,9 @@ void File_DvDif::Errors_Stats_Update()
             Errors_Stats_Line+=__T('N');
             #if MEDIAINFO_EVENTS
                 Event.Arb|=1<<6;
+                bool IsLess=Speed_Arb_Current.Value<Speed_Arb_Current_Theory.Value;
+                if (IsLess)
+                    MoreFlags|=1<<2;
             #endif //MEDIAINFO_EVENTS
             Speed_Arb_Current_Theory=Speed_Arb_Current;
             Arb_AreDetected=true;
@@ -1201,7 +1554,7 @@ void File_DvDif::Errors_Stats_Update()
                         if (!Audio_Errors_PerDseq && audio_source_mode.empty() && ChannelInfo[ChannelGroup*2+Channel])
                             Audio_Errors_PerDseq=9; //We consider all audio blocks as invalid if the frame has no audio_source for this channel but had it in the previous frames
                         if (!Audio_Errors_PerDseq && ChannelGroup<Audio_Errors.size() && !Audio_Errors[ChannelGroup].empty())
-                            Audio_Errors_PerDseq=Audio_Errors[ChannelGroup][Dseq];
+                            Audio_Errors_PerDseq=Audio_Errors[ChannelGroup][Dseq].Count;
                         if (Audio_Errors_PerDseq)
                         {
                             Audio_Errors_PerChannel+=Audio_Errors_PerDseq;
@@ -1446,6 +1799,7 @@ void File_DvDif::Errors_Stats_Update()
             struct MediaInfo_Event_DvDif_Analysis_Frame_1 Event1;
             Event_Prepare((struct MediaInfo_Event_Generic*)&Event1, MediaInfo_EventCode_Create(MediaInfo_Parser_DvDif, MediaInfo_Event_DvDif_Analysis_Frame, 1), sizeof(MediaInfo_Event_DvDif_Analysis_Frame_1));
             Event1.StreamOffset=Speed_FrameCount_StartOffset;
+            Event1.FrameNumber=Speed_FrameCount;
             Event1.TimeCode=Event.TimeCode;
             Event1.RecordedDateTime1=Event.RecordedDateTime1;
             Event1.RecordedDateTime2Buggy=Event.RecordedDateTime2;
@@ -1465,6 +1819,8 @@ void File_DvDif::Errors_Stats_Update()
                     Video_StaNonZero=true; // Only if all from the same STA value
             size_t Audio_TotalErrors=0;
             size_t Audio_Errors_PerDseq[16]; //Per Dseq
+            int8u* MoreData=NULL;
+            size_t MoreData_Offset=0;
             if (Audio_Errors.empty())
             {
                 Event1.Audio_Data_Errors_Count=0;
@@ -1475,11 +1831,42 @@ void File_DvDif::Errors_Stats_Update()
                 memset(Audio_Errors_PerDseq, 0, sizeof(Audio_Errors_PerDseq));
                 for (size_t ChannelGroup=0; ChannelGroup<Audio_Errors.size(); ChannelGroup++)
                     for (size_t Dseq=0; Dseq<Dseq_Count; Dseq++)
-                        Audio_Errors_PerDseq[Dseq]+=Audio_Errors[ChannelGroup][Dseq];
+                    {
+                        if (Dseq>=Audio_Errors[ChannelGroup].size())
+                            break;
+                        Audio_Errors_PerDseq[Dseq]+=Audio_Errors[ChannelGroup][Dseq].Count;
+                        std::set<int16u>& Values=Audio_Errors[ChannelGroup][Dseq].Values;
+                        bool Is16=(QU==(int8u)-1)?true:(QU==0);
+                        if (!Values.empty() && (Values.size()>1 || *Values.begin()!=(0x8000>>(Is16?0:4))))
+                        {
+                            if (!MoreData)
+                                MoreData=new int8u[4096] + sizeof(size_t); // TODO: more dynamic allocation
+                            MoreData[MoreData_Offset++]=2+Audio_Errors[ChannelGroup][Dseq].Values.size()*2; // Size of the block
+                            MoreData[MoreData_Offset++]=MediaInfo_Event_Analysis_Frame_AudioErrorValues; // Audio error value par channel group per Dseq
+                            MoreData[MoreData_Offset++]=ChannelGroup;
+                            MoreData[MoreData_Offset++]=Dseq;
+                            for (std::set<int16u>::iterator Value=Audio_Errors[ChannelGroup][Dseq].Values.begin(); Value!=Audio_Errors[ChannelGroup][Dseq].Values.end(); ++Value)
+                            {
+                                *((int16u*)(MoreData+MoreData_Offset))=*Value&0xFFFF;
+                                MoreData_Offset+=2;
+                            }
+                        }
+                    }
                 for (size_t Dseq=0; Dseq<Dseq_Count; Dseq++)
                     Audio_TotalErrors+=Audio_Errors_PerDseq[Dseq];
                 Event1.Audio_Data_Errors_Count=16;
                 Event1.Audio_Data_Errors=Audio_Errors_PerDseq;
+            }
+            if (!DirectionSpeed.empty())
+            {
+                if (!MoreData)
+                    MoreData=new int8u[4096]+sizeof(size_t); // TODO: more dynamic allocation
+                MoreData[MoreData_Offset++]=DirectionSpeed.size();
+                MoreData[MoreData_Offset++]=MediaInfo_Event_Analysis_Frame_DirectionSpeed; // DirectionSpeed values
+                for (std::vector<int8u>::iterator DirectionSpeed_Item=DirectionSpeed.begin(); DirectionSpeed_Item!=DirectionSpeed.end(); ++DirectionSpeed_Item)
+                {
+                    MoreData[MoreData_Offset++]=*DirectionSpeed_Item;
+                }
             }
             Event1.Captions_Errors=Captions_Flags[1]?1:0;
             Captions_Flags.reset(1);
@@ -1495,15 +1882,24 @@ void File_DvDif::Errors_Stats_Update()
             Event1.RecordedDateTime2=RecordedDateTime2Fixed;
             Event1.BlockStatus_Count=((DSF?1800:1500)*(FSC_WasSet?2:1));
             Event1.BlockStatus=BlockStatus;
+            Event1.AbstBf=AbstBf_Current;
+            Event1.MoreFlags=MoreFlags;
+            if (MoreData)
+            {
+                Event1.MoreData=MoreData-sizeof(size_t);
+                *((size_t*)Event1.MoreData)=MoreData_Offset;
+            }
             Config->Event_Send(NULL, (const int8u*)&Event1, sizeof(MediaInfo_Event_DvDif_Analysis_Frame_1));
             Config->Event_Send(NULL, (const int8u*)&Event, sizeof(MediaInfo_Event_DvDif_Analysis_Frame_0));
             memset(BlockStatus, 0, Event1.BlockStatus_Count);
         #endif //MEDIAINFO_EVENTS
+        if (MoreData)
+            delete[] (MoreData-sizeof(size_t));
     }
 
     //Speed_TimeCode_Current
-    if (!Speed_TimeCode_Current_Theory.IsValid)
-        Speed_TimeCode_Current_Theory=Speed_TimeCode_Current;
+    Speed_TimeCode_Current_Theory2=Speed_TimeCode_Current; // Don't change it
+    Speed_TimeCode_Current_Theory=Speed_TimeCode_Current;
     if (Speed_TimeCode_Current_Theory.IsValid)
     {
         int8u Frames_Max;
@@ -1539,6 +1935,7 @@ void File_DvDif::Errors_Stats_Update()
     }
 
     //Speed_RecTime_Current_Theory
+    Speed_RecDate_Current_Theory2=Speed_RecDate_Current; //Don't change it
     Speed_RecTime_Current_Theory=Speed_RecTime_Current;
     Speed_RecTime_Current_Theory2=Speed_RecTime_Current; //Don't change it
     if (Speed_RecTime_Current_Theory.IsValid)
@@ -1573,8 +1970,11 @@ void File_DvDif::Errors_Stats_Update()
     }
 
     FSC_WasSet=false;
+    FSC_WasSet_Sum=0;
+    FSC_WasNotSet_Sum=0;
     FSP_WasNotSet=false;
     ssyb_AP3=(int8u)-1;
+    AbstBf_Current=(0x7FFFFF)<<1;
     Speed_TimeCode_Last=Speed_TimeCode_Current;
     Speed_TimeCode_Current.Clear();
     Speed_RecDate_Current.IsValid=false;
@@ -1584,7 +1984,9 @@ void File_DvDif::Errors_Stats_Update()
     Speed_Arb_Last=Speed_Arb_Current;
     Speed_Arb_Current.Clear();
     Speed_FrameCount++;
+    Speed_FrameCount_system[system]++;
     REC_IsValid=false;
+    DirectionSpeed.clear();
     audio_source_mode.clear();
     Speed_Contains_NULL=0;
     Video_STA_Errors.clear();

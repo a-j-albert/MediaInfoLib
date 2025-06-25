@@ -582,8 +582,8 @@ void File__Analyze::Get_L16(int128u &Info, const char* Name)
 {
     INTEGRITY_SIZE_ATLEAST_INT(16);
     //Info=LittleEndian2int128u(Buffer+Buffer_Offset+(size_t)Element_Offset);
-    Info.hi=LittleEndian2int64u(Buffer+Buffer_Offset+(size_t)Element_Offset);
-    Info.lo=LittleEndian2int64u(Buffer+Buffer_Offset+(size_t)Element_Offset+8);
+    Info.lo=LittleEndian2int64u(Buffer+Buffer_Offset+(size_t)Element_Offset);
+    Info.hi=LittleEndian2int64u(Buffer+Buffer_Offset+(size_t)Element_Offset+8);
     if (Trace_Activated) Param(Name, Info);
     Element_Offset+=16;
 }
@@ -1051,25 +1051,14 @@ void File__Analyze::Get_EB(int64u &Info, const char* Name)
         Size++;
         Peek_BS(Size, Size_Mark);
     }
+    BS_End();
 
     //Integrity
-    if (!BS->Remain() || Size>8)
+    if (!Size_Mark || Size>8)
     {
-        if (Size>8)
-        {
-            //Element[Element_Level].IsComplete=true; //If it is in a header
-            Trusted_IsNot("EBML integer parsing error");
-        }
+        Trusted_IsNot("EBML integer parsing error");
         Info=0;
         return;
-    }
-    BS_End();
-    if (File_Offset+Buffer_Offset+Element_Offset>=Element[Element_Level].Next)
-    {
-        //Element[Element_Level].IsComplete=true; //If it is in a header
-        Trusted_IsNot("Not enough place to have an EBML");
-        Info=0;
-        return; //Not enough space
     }
     INTEGRITY_SIZE_ATLEAST_INT(Size);
 
@@ -1143,25 +1132,15 @@ void File__Analyze::Get_ES(int64s &Info, const char* Name)
         Size++;
         Peek_BS(Size, Size_Mark);
     }
+    size_t Remain=BS->Remain();
+    BS_End();
 
     //Integrity
-    if (!BS->Remain() || Size>8)
+    if (!Size_Mark || Size>8)
     {
-        if (Size>8)
-        {
-            //Element[Element_Level].IsComplete=true; //If it is in a header
-            Trusted_IsNot("EBML integer parsing error");
-        }
+        Trusted_IsNot("EBML integer parsing error");
         Info=0;
         return;
-    }
-    BS_End();
-    if (File_Offset+Buffer_Offset+Element_Offset>=Element[Element_Level].Next)
-    {
-        //Element[Element_Level].IsComplete=true; //If it is in a header
-        Trusted_IsNot("Not enough place to have an EBML");
-        Info=0;
-        return; //Not enough space
     }
     INTEGRITY_SIZE_ATLEAST_INT(Size);
 
@@ -1242,20 +1221,15 @@ void File__Analyze::Get_VS(int64u &Info, const char* Name)
         Info=128*Info+BS->Get1(7);
     }
     while (more_data && Size<=8 && BS->Remain());
+    size_t Remain=BS->Remain();
     BS_End();
 
     //Integrity
-    if (Size>8)
+    if (more_data || Size>8)
     {
         Trusted_IsNot("Variable Size Value parsing error");
         Info=0;
         return;
-    }
-    if (File_Offset+Buffer_Offset+Element_Offset>=Element[Element_Level].Next)
-    {
-        Trusted_IsNot("Not enough place to have a Variable Size Value");
-        Info=0;
-        return; //Not enough space
     }
 
     if (Trace_Activated)
@@ -1285,17 +1259,11 @@ void File__Analyze::Skip_VS(const char* Name)
     BS_End();
 
     //Integrity
-    if (Size>8)
+    if (more_data || Size>8)
     {
         Trusted_IsNot("Variable Size Value parsing error");
         Info=0;
         return;
-    }
-    if (File_Offset+Buffer_Offset+Element_Offset>=Element[Element_Level].Next)
-    {
-        Trusted_IsNot("Not enough place to have a Variable Size Value");
-        Info=0;
-        return; //Not enough space
     }
 
     if (Trace_Activated)
@@ -1472,6 +1440,7 @@ void File__Analyze::Get_VL(const vlc Vlc[], size_t &Info, const char* Name)
                         if (BS->GetB())
                             Value++;
                         CountOfBits++;
+                        break;
             case   0 :  ;
         }
 
@@ -1869,6 +1838,33 @@ void File__Analyze::Get_ISO_8859_5(int64u Bytes, Ztring &Info, const char* Name)
 }
 
 //---------------------------------------------------------------------------
+void File__Analyze::Get_ISO_8859_9(int64u Bytes, Ztring &Info, const char* Name)
+{
+    INTEGRITY_SIZE_ATLEAST_STRING(Bytes);
+    Info.clear();
+    size_t End = Buffer_Offset + (size_t)Element_Offset + (size_t)Bytes;
+    for (size_t Pos=Buffer_Offset+(size_t)Element_Offset; Pos<End; ++Pos)
+    {
+        switch (Buffer[Pos])
+        {
+            case 0xD0 : Info+=Ztring().From_Unicode(L"\x11E"); break;
+            case 0xDD : Info+=Ztring().From_Unicode(L"\x130"); break;
+            case 0xDE : Info+=Ztring().From_Unicode(L"\x15E"); break;
+            case 0xF0 : Info+=Ztring().From_Unicode(L"\x11F"); break;
+            case 0xFD : Info+=Ztring().From_Unicode(L"\x131"); break;
+            case 0xFE : Info+=Ztring().From_Unicode(L"\x15F"); break;
+            default   :
+                        {
+                        wchar_t NewChar=Buffer[Pos];
+                        Info+=Ztring().From_Unicode(&NewChar, 1);
+                        }
+        }
+    }
+    if (Trace_Activated && Bytes) Param(Name, Info);
+    Element_Offset+=Bytes;
+}
+
+//---------------------------------------------------------------------------
 extern const int16u Ztring_MacRoman[128];
 void File__Analyze::Get_MacRoman(int64u Bytes, Ztring& Info, const char* Name)
 {
@@ -1931,6 +1927,13 @@ void File__Analyze::Get_UTF8(int64u Bytes, Ztring &Info, const char* Name)
 }
 
 //---------------------------------------------------------------------------
+void File__Analyze::Peek_UTF8(int64u Bytes, Ztring &Info)
+{
+    INTEGRITY_SIZE_ATLEAST_STRING(Bytes);
+    Info.From_UTF8((const char*)(Buffer+Buffer_Offset+(size_t)Element_Offset), (size_t)Bytes);
+}
+
+//---------------------------------------------------------------------------
 void File__Analyze::Get_UTF16(int64u Bytes, Ztring &Info, const char* Name)
 {
     INTEGRITY_SIZE_ATLEAST_STRING(Bytes);
@@ -1967,6 +1970,19 @@ void File__Analyze::Skip_Local(int64u Bytes, const char* Name)
     if (Trace_Activated && Bytes) Param(Name, Ztring().From_ISO_8859_1((const char*)(Buffer+Buffer_Offset+(size_t)Element_Offset), (size_t)Bytes)); //Trying with the most commonly used charset before UTF8
     #endif //WINDOWS
     Element_Offset+=Bytes;
+}
+
+//---------------------------------------------------------------------------
+void File__Analyze::Skip_ISO_8859_1(int64u Bytes, const char* Name)
+{
+    INTEGRITY_SIZE_ATLEAST(Bytes);
+    if (Trace_Activated && Bytes)
+    {
+        Ztring Temp;
+        Get_ISO_8859_1(Bytes, Temp, Name);
+    }
+    else
+        Element_Offset+=Bytes;
 }
 
 //---------------------------------------------------------------------------
@@ -2014,6 +2030,18 @@ void File__Analyze::Skip_UTF16L(int64u Bytes, const char* Name)
     Element_Offset+=Bytes;
 }
 
+//---------------------------------------------------------------------------
+size_t File__Analyze::SizeUpTo0(size_t MaxSize)
+{
+    auto Buffer_Begin=Buffer+Buffer_Offset+(size_t)Element_Offset;
+    auto Buffer_Current=Buffer_Begin;
+    auto Remaining=(size_t)(Element_Size-Element_Offset);
+    auto Buffer_End=Buffer_Begin+(MaxSize>Remaining?Remaining:MaxSize);
+    while (Buffer_Current<Buffer_End && *Buffer_Current)
+        Buffer_Current++;
+    return Buffer_Current-Buffer_Begin;
+}
+
 //***************************************************************************
 // Text
 //***************************************************************************
@@ -2041,7 +2069,7 @@ void File__Analyze::Skip_XX(int64u Bytes, const char* Name)
 {
     if (Element_Offset+Bytes!=Element_TotalSize_Get()) //Exception for seek to end of the element
     {
-        INTEGRITY_SIZE_ATLEAST(Bytes);
+        //INTEGRITY_SIZE_ATLEAST(Bytes);
     }
     if (Trace_Activated && Bytes) Param(Name, Ztring("(")+Ztring::ToZtring(Bytes)+Ztring(" bytes)"));
     Element_Offset+=Bytes;
@@ -2078,7 +2106,7 @@ void File__Analyze::Get_Flags (int64u ValueToPut, int8u &Info, const char* Name)
 void File__Analyze::Skip_Flags(int64u Flags, size_t Order, const char* Name)
 {
     Element_Begin0();
-    if (Trace_Activated && MediaInfoLib::Config.Trace_Format_Get()!=MediaInfoLib::Config.Trace_Format_XML && MediaInfoLib::Config.Trace_Format_Get()!=MediaInfoLib::Config.Trace_Format_MICRO_XML) Param(Name, (Flags&((int64u)1<<Order))); //TODO: support flags in XML trace
+    if (Trace_Activated && MediaInfoLib::Config.Trace_Format_Get()!=MediaInfoLib::Config.Trace_Format_XML && MediaInfoLib::Config.Trace_Format_Get()!=MediaInfoLib::Config.Trace_Format_MICRO_XML) Param(Name, (bool)((Flags>>Order)&1));
     Element_End0();
 }
 
@@ -2295,6 +2323,8 @@ void File__Analyze::Peek_S8(int8u Bits, int64u &Info)
 //---------------------------------------------------------------------------
 void File__Analyze::Skip_BS(size_t Bits, const char* Name)
 {
+    if (!Bits)
+        return;
     INTEGRITY(Bits<=BS->Remain(), "Size is wrong", BS->Offset_Get())
     if (Trace_Activated)
     {

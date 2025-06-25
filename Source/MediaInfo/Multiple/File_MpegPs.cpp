@@ -23,6 +23,9 @@
 //---------------------------------------------------------------------------
 #include "MediaInfo/Multiple/File_MpegPs.h"
 #include "MediaInfo/Multiple/File_Mpeg_Psi.h"
+#if defined(MEDIAINFO_ANCILLARY_YES)
+    #include "MediaInfo/Multiple/File_Ancillary.h"
+#endif
 #if defined(MEDIAINFO_AVC_YES)
     #include "MediaInfo/Video/File_Avc.h"
 #endif
@@ -40,6 +43,9 @@
 #endif
 #if defined(MEDIAINFO_AVSV_YES)
     #include "MediaInfo/Video/File_AvsV.h"
+#endif
+#if defined(MEDIAINFO_AVS3V_YES)
+    #include "MediaInfo/Video/File_Avs3V.h"
 #endif
 #if defined(MEDIAINFO_DIRAC_YES)
     #include "MediaInfo/Video/File_Dirac.h"
@@ -197,7 +203,6 @@ File_MpegPs::File_MpegPs()
         Trace_Layers_Update(0); //Container1
     #endif //MEDIAINFO_TRACE
     MustSynchronize=true;
-    Buffer_TotalBytes_FirstSynched_Max=64*1024;
     Buffer_TotalBytes_Fill_Max=(int64u)-1; //Disabling this feature for this format, this is done in the parser
     Trusted_Multiplier=2;
 
@@ -259,6 +264,13 @@ File_MpegPs::~File_MpegPs()
 //***************************************************************************
 // Streams management
 //***************************************************************************
+
+//---------------------------------------------------------------------------
+void File_MpegPs::Streams_Accept()
+{
+    if (!IsSub && File_Name.size()>=5 && File_Name.find(__T("1.VOB"), File_Name.size()-5)!=string::npos && File_Size>=0x3F000000 && File_Size<0x40000000)
+        TestContinuousFileNames(1, Ztring(), true);
+}
 
 //---------------------------------------------------------------------------
 void File_MpegPs::Streams_Fill()
@@ -591,7 +603,7 @@ void File_MpegPs::Streams_Finish_PerStream(size_t StreamID, ps_stream &Temp, kin
         Streams_Fill_PerStream(StreamID, Temp, KindOfStream);
 
     //Init
-    if (Temp.StreamKind==Stream_Max)
+    if (Temp.StreamKind==Stream_Max && (FromTS?FromTS_format_identifier:Streams[stream_id].format_identifier)!=0x56414E43)
         return;
     StreamKind_Last=Temp.StreamKind;
     StreamPos_Last=Temp.StreamPos;
@@ -615,6 +627,27 @@ void File_MpegPs::Streams_Finish_PerStream(size_t StreamID, ps_stream &Temp, kin
                     return;
             #endif //MEDIAINFO_DEMUX
         }
+        if (StreamKind_Last==Stream_Max)
+        {
+            for (size_t StreamKind=Stream_General+1; StreamKind<Stream_Max; StreamKind++)
+            {
+                size_t Count=Temp.Parsers[0]->Count_Get((stream_t)StreamKind);
+                if (Count && Temp.StreamKind==Stream_Max)
+                {
+                    //TODO: quick and ugly, adapt for multiple stream kinds in one stream
+                    Temp.StreamKind=(stream_t)StreamKind;
+                    Temp.StreamPos=Count_Get((stream_t)StreamKind);
+                    Temp.Count=Count;
+                }
+                for (size_t StreamPos=0; StreamPos<Count; StreamPos++)
+                {
+                    Stream_Prepare((stream_t)StreamKind);
+                    Merge(*Temp.Parsers[0], StreamKind_Last, StreamPos, StreamPos_Last);
+                }
+            }
+        }
+        else
+        {
         for (size_t Pos=0; Pos<Temp.Count; Pos++)
         {
             Ztring ID=Retrieve(StreamKind_Last, Temp.StreamPos+Pos, General_ID);
@@ -622,6 +655,7 @@ void File_MpegPs::Streams_Finish_PerStream(size_t StreamID, ps_stream &Temp, kin
             Merge(*Temp.Parsers[0], StreamKind_Last, Pos, Temp.StreamPos+Pos);
             Fill(StreamKind_Last, Temp.StreamPos+Pos, General_ID, ID, true);
             Fill(StreamKind_Last, Temp.StreamPos+Pos, General_ID_String, ID_String, true);
+        }
         }
         if (!IsSub)
         {
@@ -843,10 +877,19 @@ bool File_MpegPs::Synched_Test()
     if (Buffer[Buffer_Offset  ]!=0x00
      || Buffer[Buffer_Offset+1]!=0x00
      || Buffer[Buffer_Offset+2]!=0x01)
-        Synched=false;
+    {
+        Frame_Count=(int64u)-1;
+        Frame_Count_NotParsedIncluded=(int64u)-1;
+        if (Streams[stream_id].TimeStamp_End.PTS.TimeStamp!=(int64u)-1 && Streams[stream_id].TimeStamp_Start.PTS.TimeStamp!=(int64u)-1)
+            FrameInfo.PTS=(Streams[stream_id].TimeStamp_End.PTS.TimeStamp-Streams[stream_id].TimeStamp_Start.PTS.TimeStamp)*100000/9;
+        SynchLost("MPEG-PS");
+        Frame_Count=0;
+        FrameInfo=frame_info();
+        return true;
+    }
 
     //Quick search
-    if (Synched && !Header_Parser_QuickSearch())
+    if (!Header_Parser_QuickSearch())
         return false;
 
     //We continue
@@ -1413,8 +1456,12 @@ bool File_MpegPs::Header_Parse_PES_packet(int8u stream_id)
         if (Demux_UnpacketizeContainer && Buffer_Offset+6+PES_packet_length>Buffer_Size)
             return false;
     #endif //MEDIAINFO_DEMUX
-    if (PES_packet_length && Buffer_Offset+6+PES_packet_length>=Buffer_Size && Config->IsFinishing)
-        PES_packet_length=(int16u)(Buffer_Size-(Buffer_Offset+6));
+    if (!IsSub)
+    {
+        int64u ExpectedSize=Buffer_Offset+6+PES_packet_length;
+        if (ExpectedSize>File_Size)
+            IsTruncated(ExpectedSize, true, "MPEG-PS");
+    }
 
     //Parsing
     switch (stream_id)
@@ -1527,18 +1574,18 @@ void File_MpegPs::Header_Parse_PES_packet_MPEG1(int8u stream_id)
         #if defined(MEDIAINFO_ARIBSTDB24B37_YES)
             if (!FromAribStdB24B37)
         #endif //defined(MEDIAINFO_ARIBSTDB24B37_YES)
+            {
                 FrameInfo.PTS=(((int64u)PTS_32)<<30)
                             | (((int64u)PTS_29)<<15)
                             | (((int64u)PTS_14));
-
-        //Incoherencies test
-        if (!Config->File_MpegPs_PTS_Begin_IsNearZero && Frame_Count<16)
-        {
-            if (FrameInfo.PTS<90000 || FrameInfo.PTS>0x200000000LL-90000) // 1 second before and after 
-                Config->File_MpegPs_PTS_Begin_IsNearZero=true;
-        }
-        if (Config->File_MpegPs_PTS_Begin_IsNearZero && FrameInfo.PTS>0x200000000LL-90000)
-            FrameInfo.PTS=0; //TODO: find a better method for synchronizing streams, Hack in case DTS is negative (currently not supported by MI). TODO: negative DTS.
+                if (!Config->File_MpegPs_PTS_Begin_IsNearZero && Frame_Count<16)
+                {
+                    if (FrameInfo.PTS<90000 || FrameInfo.PTS>0x200000000LL-90000) // 1 second before and after 
+                        Config->File_MpegPs_PTS_Begin_IsNearZero=true;
+                }
+                if (Config->File_MpegPs_PTS_Begin_IsNearZero && FrameInfo.PTS>0x100000000LL)
+                    FrameInfo.PTS=0; //TODO: find a better method for synchronizing streams, Hack in case DTS is negative (currently not supported by MI). TODO: negative DTS.
+            }
 
         if (Streams[stream_id].Searching_TimeStamp_End && stream_id!=0xBD && stream_id!=0xFD) //0xBD and 0xFD can contain multiple streams, TimeStamp management is in Streams management
         {
@@ -1588,18 +1635,18 @@ void File_MpegPs::Header_Parse_PES_packet_MPEG1(int8u stream_id)
         #if defined(MEDIAINFO_ARIBSTDB24B37_YES)
             if (!FromAribStdB24B37)
         #endif //defined(MEDIAINFO_ARIBSTDB24B37_YES)
+            {
                 FrameInfo.PTS=(((int64u)PTS_32)<<30)
                             | (((int64u)PTS_29)<<15)
                             | (((int64u)PTS_14));
-
-        //Incoherencies test
-        if (!Config->File_MpegPs_PTS_Begin_IsNearZero && Frame_Count<16)
-        {
-            if (FrameInfo.PTS<90000 || FrameInfo.PTS>0x200000000LL-90000) // 1 second before and after 
-                Config->File_MpegPs_PTS_Begin_IsNearZero=true;
-        }
-        if (Config->File_MpegPs_PTS_Begin_IsNearZero && FrameInfo.PTS>0x200000000LL-90000)
-            FrameInfo.PTS=0; //TODO: find a better method for synchronizing streams, Hack in case DTS is negative (currently not supported by MI). TODO: negative DTS.
+                if (!Config->File_MpegPs_PTS_Begin_IsNearZero && Frame_Count<16)
+                {
+                    if (FrameInfo.PTS<90000 || FrameInfo.PTS>0x200000000LL-90000) // 1 second before and after 
+                        Config->File_MpegPs_PTS_Begin_IsNearZero=true;
+                }
+                if (Config->File_MpegPs_PTS_Begin_IsNearZero && FrameInfo.PTS>0x100000000LL)
+                    FrameInfo.PTS=0; //TODO: find a better method for synchronizing streams, Hack in case DTS is negative (currently not supported by MI). TODO: negative DTS.
+            }
 
         if (Streams[stream_id].Searching_TimeStamp_End)
         {
@@ -1643,14 +1690,12 @@ void File_MpegPs::Header_Parse_PES_packet_MPEG1(int8u stream_id)
         FrameInfo.DTS=(((int64u)DTS_32)<<30)
                     | (((int64u)DTS_29)<<15)
                     | (((int64u)DTS_14));
-
-        //Incoherencies test
         if (!Config->File_MpegPs_PTS_Begin_IsNearZero && Frame_Count<16)
         {
             if (FrameInfo.DTS<90000 || FrameInfo.DTS>0x200000000LL-90000) // 1 second before and after 
                 Config->File_MpegPs_PTS_Begin_IsNearZero=true;
         }
-        if (Config->File_MpegPs_PTS_Begin_IsNearZero && FrameInfo.DTS>0x200000000LL-90000)
+        if (Config->File_MpegPs_PTS_Begin_IsNearZero && FrameInfo.DTS>0x100000000LL)
             FrameInfo.DTS=0; //TODO: find a better method for synchronizing streams, Hack in case DTS is negative (currently not supported by MI). TODO: negative DTS.
 
         if (Streams[stream_id].Searching_TimeStamp_End)
@@ -1809,22 +1854,22 @@ void File_MpegPs::Header_Parse_PES_packet_MPEG2(int8u stream_id)
             #if defined(MEDIAINFO_ARIBSTDB24B37_YES)
                 if (!FromAribStdB24B37)
             #endif //defined(MEDIAINFO_ARIBSTDB24B37_YES)
+                {
                     FrameInfo.PTS=                                  ((((int64u)Buffer[Buffer_Pos  ]&0x0E))<<29)
                       | ( ((int64u)Buffer[Buffer_Pos+1]      )<<22)|((((int64u)Buffer[Buffer_Pos+2]&0xFE))<<14)
                       | ( ((int64u)Buffer[Buffer_Pos+3]      )<< 7)|((((int64u)Buffer[Buffer_Pos+4]&0xFE))>> 1);
+                    if (!Config->File_MpegPs_PTS_Begin_IsNearZero && Frame_Count<16)
+                    {
+                        if (FrameInfo.PTS<90000 || FrameInfo.PTS>0x200000000LL-90000) // 1 second before and after 
+                            Config->File_MpegPs_PTS_Begin_IsNearZero=true;
+                    }
+                    if (Config->File_MpegPs_PTS_Begin_IsNearZero && FrameInfo.PTS>0x100000000LL)
+                        FrameInfo.PTS=0; //TODO: find a better method for synchronizing streams, Hack in case DTS is negative (currently not supported by MI). TODO: negative DTS.
+                }
             Element_Offset+=5;
         #if MEDIAINFO_TRACE
         }
         #endif //MEDIAINFO_TRACE
-
-        //Incoherencies test
-        if (!Config->File_MpegPs_PTS_Begin_IsNearZero && Frame_Count<16)
-        {
-            if (FrameInfo.PTS<90000 || FrameInfo.PTS>0x200000000LL-90000) // 1 second before and after 
-                Config->File_MpegPs_PTS_Begin_IsNearZero=true;
-        }
-        if (Config->File_MpegPs_PTS_Begin_IsNearZero && FrameInfo.PTS>0x200000000LL-90000)
-            FrameInfo.PTS=0; //TODO: find a better method for synchronizing streams, Hack in case DTS is negative (currently not supported by MI). TODO: negative DTS.
 
         //Filling
         if (Streams[stream_id].Searching_TimeStamp_End)
@@ -1901,22 +1946,22 @@ void File_MpegPs::Header_Parse_PES_packet_MPEG2(int8u stream_id)
             #if defined(MEDIAINFO_ARIBSTDB24B37_YES)
                 if (!FromAribStdB24B37)
             #endif //defined(MEDIAINFO_ARIBSTDB24B37_YES)
+                {
                     FrameInfo.PTS=                                  ((((int64u)Buffer[Buffer_Pos  ]&0x0E))<<29)
                       | ( ((int64u)Buffer[Buffer_Pos+1]      )<<22)|((((int64u)Buffer[Buffer_Pos+2]&0xFE))<<14)
                       | ( ((int64u)Buffer[Buffer_Pos+3]      )<< 7)|((((int64u)Buffer[Buffer_Pos+4]&0xFE))>> 1);
+                    if (!Config->File_MpegPs_PTS_Begin_IsNearZero && Frame_Count<16)
+                    {
+                        if (FrameInfo.PTS<90000 || FrameInfo.PTS>0x200000000LL-90000) // 1 second before and after 
+                            Config->File_MpegPs_PTS_Begin_IsNearZero=true;
+                    }
+                    if (Config->File_MpegPs_PTS_Begin_IsNearZero && FrameInfo.PTS>0x100000000LL)
+                        FrameInfo.PTS=0; //TODO: find a better method for synchronizing streams, Hack in case DTS is negative (currently not supported by MI). TODO: negative DTS.
+                }
             Element_Offset+=5;
         #if MEDIAINFO_TRACE
         }
         #endif //MEDIAINFO_TRACE
-
-        //Incoherencies test
-        if (!Config->File_MpegPs_PTS_Begin_IsNearZero && Frame_Count<16)
-        {
-            if (FrameInfo.PTS<90000 || FrameInfo.PTS>0x200000000LL-90000) // 1 second before and after 
-                Config->File_MpegPs_PTS_Begin_IsNearZero=true;
-        }
-        if (Config->File_MpegPs_PTS_Begin_IsNearZero && FrameInfo.PTS>0x200000000LL-90000)
-            FrameInfo.PTS=0; //TODO: find a better method for synchronizing streams, Hack in case DTS is negative (currently not supported by MI). TODO: negative DTS.
 
         //Filling
         if (Streams[stream_id].Searching_TimeStamp_End)
@@ -1961,8 +2006,13 @@ void File_MpegPs::Header_Parse_PES_packet_MPEG2(int8u stream_id)
             FrameInfo.DTS=(((int64u)DTS_32)<<30)
                         | (((int64u)DTS_29)<<15)
                         | (((int64u)DTS_14));
-            if (Frame_Count<16 &&FrameInfo.DTS>=0x100000000LL) //Hack in case DTS is negative (currently not supported by MI). TODO: negative DTS.
-                FrameInfo.DTS=0;
+            if (!Config->File_MpegPs_PTS_Begin_IsNearZero && Frame_Count<16)
+            {
+                if (FrameInfo.DTS<90000 || FrameInfo.DTS>0x200000000LL-90000) // 1 second before and after 
+                    Config->File_MpegPs_PTS_Begin_IsNearZero=true;
+            }
+            if (Config->File_MpegPs_PTS_Begin_IsNearZero && FrameInfo.PTS>0x100000000LL)
+                FrameInfo.DTS=0; //TODO: find a better method for synchronizing streams, Hack in case DTS is negative (currently not supported by MI). TODO: negative DTS.
             Element_Info_From_Milliseconds(float64_int64s(((float64)FrameInfo.DTS)/90));
             Element_End0();
             Element_End0();
@@ -1986,21 +2036,17 @@ void File_MpegPs::Header_Parse_PES_packet_MPEG2(int8u stream_id)
             FrameInfo.DTS=                                  ((((int64u)Buffer[Buffer_Pos  ]&0x0E))<<29)
               | ( ((int64u)Buffer[Buffer_Pos+1]      )<<22)|((((int64u)Buffer[Buffer_Pos+2]&0xFE))<<14)
               | ( ((int64u)Buffer[Buffer_Pos+3]      )<< 7)|((((int64u)Buffer[Buffer_Pos+4]&0xFE))>> 1);
+            if (!Config->File_MpegPs_PTS_Begin_IsNearZero && Frame_Count<16)
+            {
+                if (FrameInfo.DTS<90000 || FrameInfo.DTS>0x200000000LL-90000) // 1 second before and after 
+                    Config->File_MpegPs_PTS_Begin_IsNearZero=true;
+            }
+            if (Config->File_MpegPs_PTS_Begin_IsNearZero && FrameInfo.DTS>0x100000000LL)
+                FrameInfo.DTS=0; //TODO: find a better method for synchronizing streams, Hack in case DTS is negative (currently not supported by MI). TODO: negative DTS.
             Element_Offset+=5;
-            if (Frame_Count<16 &&FrameInfo.DTS>=0x100000000LL) //Hack in case DTS is negative (currently not supported by MI). TODO: negative DTS.
-                FrameInfo.DTS=0;
         #if MEDIAINFO_TRACE
         }
         #endif //MEDIAINFO_TRACE
-
-        //Incoherencies test
-        if (!Config->File_MpegPs_PTS_Begin_IsNearZero && Frame_Count<16)
-        {
-            if (FrameInfo.DTS<90000 || FrameInfo.DTS>0x200000000LL-90000) // 1 second before and after 
-                Config->File_MpegPs_PTS_Begin_IsNearZero=true;
-        }
-        if (Config->File_MpegPs_PTS_Begin_IsNearZero && FrameInfo.DTS>0x200000000LL-90000)
-            FrameInfo.DTS=0; //TODO: find a better method for synchronizing streams, Hack in case DTS is negative (currently not supported by MI). TODO: negative DTS.
 
         //Filling
         if (Streams[stream_id].Searching_TimeStamp_End)
@@ -2967,9 +3013,10 @@ File__Analyze* File_MpegPs::private_stream_1_ChooseParser()
     if (FromTS || Streams[stream_id].program_format_identifier || Streams[stream_id].format_identifier || Streams[stream_id].descriptor_tag)
     {
         int32u format_identifier=FromTS?FromTS_format_identifier:Streams[stream_id].format_identifier;
-        if (format_identifier==0x42535344) //"BSSD"
+        switch (format_identifier)
         {
-            return ChooseParser_SmpteSt0302(); //AES3 (SMPTE 302M)
+            case 0x42535344: return ChooseParser_SmpteSt0302(); //"BSSD" AES3 (SMPTE 302M) 
+            case 0x56414E43: return ChooseParser_Ancillary(); //"VANC" AES3 (SMPTE ST 2038) 
         }
         int32u stream_type=FromTS?FromTS_stream_type:Streams[stream_id].stream_type;
         switch (stream_type)
@@ -3194,9 +3241,12 @@ void File_MpegPs::private_stream_2()
     }
     else //DVD?
     {
-        Stream_Prepare(Stream_Menu);
-        Fill(Stream_Menu, StreamPos_Last, Menu_Format, "DVD-Video");
-        Fill(Stream_Menu, StreamPos_Last, Menu_Codec, "DVD-Video");
+        if (!Config->File_IsReferenced_Get()) //If referenced by e.g. IFO, we use menu stream from the referencing format
+        {
+            Stream_Prepare(Stream_Menu);
+            Fill(Stream_Menu, StreamPos_Last, Menu_Format, "DVD-Video");
+            Fill(Stream_Menu, StreamPos_Last, Menu_Codec, "DVD-Video");
+        }
         Streams[0xBF].StreamKind=StreamKind_Last;
         Streams[0xBF].StreamPos=StreamPos_Last;
 
@@ -3324,8 +3374,9 @@ void File_MpegPs::audio_stream()
         if (Streams[stream_id].Parsers[Streams[stream_id].Parsers.size()-1]==NULL)
         {
             Streams[stream_id].Parsers.clear();
-            #if defined(MEDIAINFO_MPEGA_YES)
-                Streams[stream_id].Parsers.push_back(ChooseParser_Mpega());
+            #if defined(MEDIAINFO_MPEGH3DA_YES)
+                if (Streams[stream_id].stream_type==45) // No synch available
+                    Streams[stream_id].Parsers.push_back(ChooseParser_Mpegh3da());
             #endif
             #if defined(MEDIAINFO_AC3_YES)
                 Streams[stream_id].Parsers.push_back(ChooseParser_AC3());
@@ -3341,6 +3392,9 @@ void File_MpegPs::audio_stream()
             #endif
             #if defined(MEDIAINFO_AAC_YES)
                 Streams[stream_id].Parsers.push_back(ChooseParser_Latm());
+            #endif
+            #if defined(MEDIAINFO_MPEGA_YES)
+                Streams[stream_id].Parsers.push_back(ChooseParser_Mpega());
             #endif
         }
         for (size_t Pos=0; Pos<Streams[stream_id].Parsers.size(); Pos++)
@@ -3442,6 +3496,12 @@ void File_MpegPs::video_stream()
                         #if defined(MEDIAINFO_AVSV_YES)
                         {
                             File_AvsV* Parser=new File_AvsV;
+                            Streams[stream_id].Parsers.push_back(Parser);
+                        }
+                        #endif
+                        #if defined(MEDIAINFO_AVSV_YES)
+                        {
+                            File_Avs3V* Parser = new File_Avs3V;
                             Streams[stream_id].Parsers.push_back(Parser);
                         }
                         #endif
@@ -3738,6 +3798,9 @@ void File_MpegPs::extension_stream()
                 case 0x56432D31 :
                                     Streams_Extension[stream_id_extension].Parsers.push_back(ChooseParser_VC1());
                                     break;
+                case 0x41565356:    
+                                    Streams_Extension[stream_id_extension].Parsers.push_back(ChooseParser_Avs3V());
+                                    break;
                 case 0x64726163 :
                                     Streams_Extension[stream_id_extension].Parsers.push_back(ChooseParser_Dirac());
                                     break;
@@ -3770,6 +3833,8 @@ void File_MpegPs::extension_stream()
                                                                 {} //IPMP Control Information stream
                                                             else if (stream_id_extension==0x01)
                                                                 {} //IPMP stream
+                                                            else if (stream_id_extension==0x41)
+                                                                 Streams_Extension[stream_id_extension].Parsers.push_back(ChooseParser_Avs3V());
                                                             else if (stream_id_extension>=0x55 && stream_id_extension<=0x5F)
                                                                  Streams_Extension[stream_id_extension].Parsers.push_back(ChooseParser_VC1());
                                                             else if (stream_id_extension>=0x60 && stream_id_extension<=0x6F)
@@ -3981,6 +4046,7 @@ void File_MpegPs::xxx_stream_Parse(ps_stream &Temp, int8u &stream_Count)
                     Temp.Searching_TimeStamp_Start=false;
                 }
             }
+            break;
         default : ;
     }
 
@@ -4023,6 +4089,13 @@ void File_MpegPs::xxx_stream_Parse(ps_stream &Temp, int8u &stream_Count)
             Open_Buffer_Continue(Temp.Parsers[Pos], Buffer+Buffer_Offset+(size_t)Element_Offset, (size_t)(Element_Size-Element_Offset));
             if (IsSub && Temp.Parsers[Pos]->Frame_Count_NotParsedIncluded!=(int64u)-1)
                 Frame_Count_NotParsedIncluded=Temp.Parsers[Pos]->Frame_Count_NotParsedIncluded;
+            if (Temp.Parsers[Pos]->Status[IsAccepted])
+            {
+                if (Temp.Parsers[Pos]->FrameInfo.PTS!=(int64u)-1)
+                    Streams[stream_id].TimeStamp_End.PTS.TimeStamp=float64_int64s(((float64)Temp.Parsers[Pos]->FrameInfo.PTS)*9/100000);
+                if (Temp.Parsers[Pos]->FrameInfo.DTS!=(int64u)-1)
+                    Streams[stream_id].TimeStamp_End.DTS.TimeStamp=float64_int64s(((float64)Temp.Parsers[Pos]->FrameInfo.DTS)*9/100000);
+            }
             if (!MustExtendParsingDuration && Temp.Parsers[Pos]->MustExtendParsingDuration)
             {
                 SizeToAnalyze*=4; //Normally 4 seconds, now 16 seconds
@@ -4037,7 +4110,7 @@ void File_MpegPs::xxx_stream_Parse(ps_stream &Temp, int8u &stream_Count)
             {
                 if (!Temp.Parsers[Pos]->Status[IsAccepted] && Temp.Parsers[Pos]->Status[IsFinished])
                 {
-                    delete *(Temp.Parsers.begin()+Pos);
+                    delete static_cast<MediaInfoLib::File__Analyze*>(*(Temp.Parsers.begin()+Pos));
                     Temp.Parsers.erase(Temp.Parsers.begin()+Pos);
                     Pos--;
                 }
@@ -4047,7 +4120,7 @@ void File_MpegPs::xxx_stream_Parse(ps_stream &Temp, int8u &stream_Count)
                     for (size_t Pos2=0; Pos2<Temp.Parsers.size(); Pos2++)
                     {
                         if (Pos2!=Pos)
-                            delete *(Temp.Parsers.begin()+Pos2);
+                            delete static_cast<MediaInfoLib::File__Analyze*>(*(Temp.Parsers.begin()+Pos2));
                     }
                     Temp.Parsers.clear();
                     Temp.Parsers.push_back(Parser);
@@ -4329,6 +4402,23 @@ bool File_MpegPs::Header_Parser_QuickSearch()
 // Parsers
 //***************************************************************************
 
+
+//---------------------------------------------------------------------------
+File__Analyze* File_MpegPs::ChooseParser_Ancillary()
+{
+    //Filling
+    #if defined(MEDIAINFO_ANCILLARY_YES)
+        auto Parser=new File_Ancillary;
+        Parser->WithTenBit=true;
+        Parser->WithChecksum=true;
+        Parser->Format=File_Ancillary::Smpte2038;
+        Parser->InDecodingOrder=true;
+    #else
+        //Filling
+        auto Parser=new File_Unknown();
+    #endif
+    return Parser;
+}
 //---------------------------------------------------------------------------
 File__Analyze* File_MpegPs::ChooseParser_Mpegv()
 {
@@ -4462,6 +4552,32 @@ File__Analyze* File_MpegPs::ChooseParser_VC1()
         Parser->Stream_Prepare(Stream_Video);
         Parser->Fill(Stream_Video, 0, Video_Codec,  "VC-1");
         Parser->Fill(Stream_Video, 0, Video_Format, "VC-1");
+    #endif
+    return Parser;
+}
+
+//---------------------------------------------------------------------------
+File__Analyze* File_MpegPs::ChooseParser_Avs3V()
+{
+    //Filling
+    #if defined(MEDIAINFO_AVSV_YES)
+        File_Avs3V* Parser = new File_Avs3V;
+    #if MEDIAINFO_DEMUX
+        if (Config->Demux_Unpacketize_Get())
+        {
+            Demux_UnpacketizeContainer = false; //No demux from this parser
+            Demux_Level = 4; //Intermediate
+            Parser->Demux_Level = 2; //Container
+            Parser->Demux_UnpacketizeContainer = true;
+        }
+    #endif //MEDIAINFO_DEMUX
+    #else
+        //Filling
+        File__Analyze* Parser = new File_Unknown();
+        Open_Buffer_Init(Parser);
+        Parser->Stream_Prepare(Stream_Video);
+        Parser->Fill(Stream_Video, 0, Video_Codec, "AVS3V");
+        Parser->Fill(Stream_Video, 0, Video_Format, "AVS3V");
     #endif
     return Parser;
 }

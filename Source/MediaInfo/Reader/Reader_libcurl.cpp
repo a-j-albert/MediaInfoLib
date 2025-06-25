@@ -26,8 +26,8 @@
 //---------------------------------------------------------------------------
 
 //---------------------------------------------------------------------------
-#include "MediaInfo/Reader/Reader_libcurl.h"
 #include "MediaInfo/File__Analyze.h"
+#include "MediaInfo/Reader/Reader_libcurl.h"
 #if defined MEDIAINFO_LIBCURL_DLL_RUNTIME
     //Copy of cURL include files
     #include "MediaInfo/Reader/Reader_libcurl_Include.h"
@@ -88,6 +88,31 @@ namespace Http
             Input           = Input.substr(0, Delimiter_Pos);
         }
     }
+    static void CutWithBracketsColon(std::string& Input, std::string& Output)
+    {
+        size_t BracketCount = 0;
+        const auto Input_Size = Input.size();
+        for (size_t i = 0; i < Input_Size; ++i) {
+            switch (Input[i])
+            {
+            case '[':
+                ++BracketCount;
+                break;
+            case ']':
+                if (!BracketCount)
+                    return;
+                --BracketCount;
+                break;
+            case ':':
+                if (!BracketCount) {
+                    Output = Input.substr(i + 1);
+                    Input.resize(i);
+                    return;
+                }
+                break;
+            }
+        }
+    }
 
     class Url
     {
@@ -101,7 +126,7 @@ namespace Http
             CutHead (Host,  User,       "@"     );
             CutTail (Host,  Path,       "/"     );
             CutTail (User,  Password,   ":"     );
-            CutTail (Host,  Port,       ":"     );
+            CutWithBracketsColon(Host, Port);
             if (User.find('/')!=(size_t)-1 && Password.empty() && Path.empty())
             {
                 // Something was weird, trying another method
@@ -112,7 +137,7 @@ namespace Http
                 CutTail (Host,  Path,       "/"     );
                 CutHead (Host,  User,       "@"     );
                 CutTail (User,  Password,   ":"     );
-                CutTail (Host,  Port,       ":"     );
+                CutWithBracketsColon(Host, Port);
                 if (Port.find_first_not_of("0123456789")!=(size_t)-1)
                 {
                     // Format not understood, putting all in Protocol
@@ -323,13 +348,18 @@ MediaInfo_Config::urlencode DetectPercentEncode(const string& In, bool AcceptSla
     return Result;
 }
 
-Ztring Reader_libcurl_FileNameWithoutPassword(const Ztring &FileName)
+Ztring Reader_libcurl_FileNameWithoutPasswordAndParameters(const Ztring &FileName)
 {
     Ztring FileName_Modified(FileName);
     size_t Begin=FileName_Modified.find(__T(':'), 6);
     size_t End=FileName_Modified.find(__T('@'));
     if (Begin!=string::npos && End!=string::npos && Begin<End)
         FileName_Modified.erase(Begin, End-Begin);
+
+    size_t Parameters_Begin=FileName_Modified.find(__T('?'));
+    if (Parameters_Begin!=string::npos)
+        FileName_Modified.erase(Parameters_Begin);
+
     return FileName_Modified;
 }
 
@@ -407,7 +437,7 @@ struct Reader_libcurl::curl_data
 //---------------------------------------------------------------------------
 struct Reader_libcurl_curl_data_getregion
 {
-    CURL*               Curl;
+    CURL*               Curl{};
     Ztring              File_Name;
     std::string         Amazon_AWS_Region;
 };
@@ -419,7 +449,7 @@ size_t libcurl_WriteData_CallBack_Amazon_AWS_Region(void *ptr, size_t size, size
     long http_code=0;
     if (curl_easy_getinfo(((Reader_libcurl_curl_data_getregion*)data)->Curl, CURLINFO_RESPONSE_CODE, &http_code)!=CURLE_OK || http_code!=200)
     {
-        MediaInfoLib::Config.Log_Send(0xC0, 0xFF, 0, Reader_libcurl_FileNameWithoutPassword(((Reader_libcurl_curl_data_getregion*)data)->File_Name)+__T(", ")+Ztring().From_UTF8(string((char*)ptr, size*nmemb)));
+        MediaInfoLib::Config.Log_Send(0xC0, 0xFF, 0, Reader_libcurl_FileNameWithoutPasswordAndParameters(((Reader_libcurl_curl_data_getregion*)data)->File_Name)+__T(", ")+Ztring().From_UTF8(string((char*)ptr, size*nmemb)));
         return size*nmemb;
     }
 
@@ -441,7 +471,7 @@ size_t libcurl_WriteData_CallBack_Amazon_AWS_Region(void *ptr, size_t size, size
     //Error is displayed if region is not filled
     if (((Reader_libcurl_curl_data_getregion*)data)->Amazon_AWS_Region.empty())
     {
-        MediaInfoLib::Config.Log_Send(0xC0, 0xFF, 0, Reader_libcurl_FileNameWithoutPassword(((Reader_libcurl_curl_data_getregion*)data)->File_Name)+__T(", ")+Ztring().From_UTF8(string((char*)ptr, size*nmemb)));
+        MediaInfoLib::Config.Log_Send(0xC0, 0xFF, 0, Reader_libcurl_FileNameWithoutPasswordAndParameters(((Reader_libcurl_curl_data_getregion*)data)->File_Name)+__T(", ")+Ztring().From_UTF8(string((char*)ptr, size*nmemb)));
         return 0;
     }
 
@@ -449,7 +479,7 @@ size_t libcurl_WriteData_CallBack_Amazon_AWS_Region(void *ptr, size_t size, size
 }
 
 //---------------------------------------------------------------------------
-void Amazon_AWS_Sign(MediaInfoLib::String &File_Name, struct curl_slist* &HttpHeader, const Http::Url &File_URL, const string &regionName, const string &serviceName, const ZtringList& ExternalHttpHeaders)
+void Amazon_AWS_Sign(struct curl_slist* &HttpHeader, const Http::Url &File_URL, const string &regionName, const string &serviceName, const ZtringList& ExternalHttpHeaders)
 {
     // Amazon AWS Authorization Header v4
     // See http://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-header-based-auth.html
@@ -545,7 +575,7 @@ void Amazon_AWS_Sign(MediaInfoLib::String &File_Name, struct curl_slist* &HttpHe
 };
 
 //---------------------------------------------------------------------------
-string Amazon_AWS_GetRegion(const string &serviceName, const string &bucketName, const Http::Url &File_URL, CURL* Curl, const ZtringList& ExternalHttpHeaders)
+size_t Amazon_AWS_GetRegion(const string &serviceName, const string &bucketName, const Http::Url &File_URL, Reader_libcurl* Reader_Curl, const ZtringList& ExternalHttpHeaders, string& RegionName)
 {
     //Transform the URL to a location request URL
     Http::Url File_URL2=File_URL;
@@ -554,17 +584,27 @@ string Amazon_AWS_GetRegion(const string &serviceName, const string &bucketName,
     File_URL2.Query="location";
 
     //Send a location request
-    Reader_libcurl_curl_data_getregion Curl_Data2;
-    Curl_Data2.Curl=Curl;
-    Curl_Data2.File_Name.From_UTF8(File_URL2.ToString());
     struct curl_slist* HttpHeader=NULL;
-    Amazon_AWS_Sign(Curl_Data2.File_Name, HttpHeader, File_URL2, "us-east-1", serviceName, ExternalHttpHeaders);
+    Amazon_AWS_Sign(HttpHeader, File_URL2, "us-east-1", serviceName, ExternalHttpHeaders);
+    Reader_libcurl_curl_data_getregion Curl_Data2;
+    CURL* Curl=Reader_Curl->Curl_Data->Curl;
+    Curl_Data2.Curl=Curl;
+    File_URL2.User.clear();
+    File_URL2.Password.clear();
+    Curl_Data2.File_Name.From_UTF8(File_URL2.ToString());
     string FileName_String=Curl_Data2.File_Name.To_UTF8();
     curl_easy_setopt(Curl, CURLOPT_WRITEFUNCTION, &libcurl_WriteData_CallBack_Amazon_AWS_Region);
     curl_easy_setopt(Curl, CURLOPT_WRITEDATA, &Curl_Data2);
     curl_easy_setopt(Curl, CURLOPT_HTTPHEADER, HttpHeader);
     curl_easy_setopt(Curl, CURLOPT_URL, FileName_String.c_str());
+    if (Reader_Curl->SetOptions())
+        return 1;
     CURLcode Result=curl_easy_perform(Curl);
+    if (Result)
+    {
+        Reader_Curl->Curl_Log(Result);
+        return 1;
+    }
     curl_easy_setopt(Curl, CURLOPT_WRITEFUNCTION, NULL);
     curl_easy_setopt(Curl, CURLOPT_WRITEDATA, NULL);
     curl_easy_setopt(Curl, CURLOPT_HTTPHEADER, NULL);
@@ -572,12 +612,13 @@ string Amazon_AWS_GetRegion(const string &serviceName, const string &bucketName,
     curl_slist_free_all(HttpHeader);
 
     //We get the region name
-    return Curl_Data2.Amazon_AWS_Region;
+    RegionName=Curl_Data2.Amazon_AWS_Region;
+    return 0;
 }
 
-void Amazon_AWS_Manage(Http::Url &File_URL, Reader_libcurl::curl_data* Curl_Data, const ZtringList& ExternalHttpHeaders)
+size_t Amazon_AWS_Manage(Http::Url &File_URL, Reader_libcurl* Reader_Curl, const ZtringList& ExternalHttpHeaders)
 {
-    // Looking for style of URL (Virtual-hosted–style URL Path-style URL), service name, region name
+    // Looking for style of URL (Virtual-hosted-style URL Path-style URL), service name, region name
     // Format:
     // <bucket>.<service>.<aws-region>
     // <service>.<aws-region>
@@ -600,7 +641,8 @@ void Amazon_AWS_Manage(Http::Url &File_URL, Reader_libcurl::curl_data* Curl_Data
         if (AfterLastDot)
         {
             string bucketName=regionName.substr(0, AfterLastDot-1); 
-            regionName=Amazon_AWS_GetRegion(serviceName, bucketName, File_URL, Curl_Data->Curl, ExternalHttpHeaders);
+            if (Amazon_AWS_GetRegion(serviceName, bucketName, File_URL, Reader_Curl, ExternalHttpHeaders, regionName))
+                return 1;
         }
         else
             regionName="us-east-1";
@@ -631,13 +673,15 @@ void Amazon_AWS_Manage(Http::Url &File_URL, Reader_libcurl::curl_data* Curl_Data
     // Handling S3 signature
     if (serviceName=="s3" && !regionName.empty())
     {
-        Amazon_AWS_Sign(Curl_Data->File_Name, Curl_Data->HttpHeader, File_URL, regionName, serviceName, ExternalHttpHeaders);
+        Amazon_AWS_Sign(Reader_Curl->Curl_Data->HttpHeader, File_URL, regionName, serviceName, ExternalHttpHeaders);
 
         //Removing the login/pass FTP-style, not usable by libcurl
         File_URL.User.clear();
         File_URL.Password.clear();
-        Curl_Data->File_Name=Ztring().From_UTF8(File_URL.ToString());
+        Reader_Curl->Curl_Data->File_Name=Ztring().From_UTF8(File_URL.ToString());
     }
+
+    return 0;
 }
 
 //---------------------------------------------------------------------------
@@ -657,7 +701,7 @@ size_t libcurl_WriteData_CallBack(void *ptr, size_t size, size_t nmemb, void *da
             long http_code = 0;
             if (curl_easy_getinfo (((Reader_libcurl::curl_data*)data)->Curl, CURLINFO_RESPONSE_CODE, &http_code)!=CURLE_OK || http_code != 200)
             {
-                MediaInfoLib::Config.Log_Send(0xC0, 0xFF, 0, Reader_libcurl_FileNameWithoutPassword(((Reader_libcurl::curl_data*)data)->File_Name)+__T(", ")+Ztring().From_UTF8(string((char*)ptr, size*nmemb)));
+                MediaInfoLib::Config.Log_Send(0xC0, 0xFF, 0, Reader_libcurl_FileNameWithoutPasswordAndParameters(((Reader_libcurl::curl_data*)data)->File_Name)+__T(", ")+Ztring().From_UTF8(string((char*)ptr, size*nmemb)));
                 return size*nmemb;
             }
         }
@@ -840,7 +884,7 @@ void Reader_libcurl::Curl_Log(int Result, const Ztring &Message)
 {
 #if MEDIAINFO_EVENTS
     if (Result == CURLE_UNKNOWN_TELNET_OPTION)
-        MediaInfoLib::Config.Log_Send(0xC0, 0xFF, 0xF1010102, Reader_libcurl_FileNameWithoutPassword(Curl_Data->File_Name) + Message);
+        MediaInfoLib::Config.Log_Send(0xC0, 0xFF, 0xF1010102, Reader_libcurl_FileNameWithoutPasswordAndParameters(Curl_Data->File_Name) + Message);
     else
     {
         Curl_Log(Result);
@@ -857,9 +901,119 @@ void Reader_libcurl::Curl_Log(int Result)
     MessageString.From_Local(Curl_Data->ErrorBuffer);
     if (MessageString.empty())
         MessageString.From_Local(curl_easy_strerror(CURLcode(Result)));
-    MediaInfoLib::Config.Log_Send(0xC0, 0xFF, 0, Reader_libcurl_FileNameWithoutPassword(Curl_Data->File_Name) + __T(", ") + MessageString);
+    int32u MessageCode;
+    switch (Result)
+    {
+    case CURLE_SSL_CACERT                   : MessageCode = 0xF1010105; break;
+    default                                 : MessageCode = 0;
+    }
+    MediaInfoLib::Config.Log_Send(0xC0, 0xFF, MessageCode, Reader_libcurl_FileNameWithoutPasswordAndParameters(Curl_Data->File_Name) + __T(", ") + MessageString);
 #endif
 }
+
+//---------------------------------------------------------------------------
+size_t Reader_libcurl::SetOptions()
+{
+    if (!Curl_Data->Ssl_CertificateFileName.empty())
+    {
+        CURLcode Result = curl_easy_setopt(Curl_Data->Curl, CURLOPT_SSLCERT, Curl_Data->Ssl_CertificateFileName.c_str());
+        if (Result)
+        {
+            Curl_Log(Result);
+            return 1;
+        }
+    }
+
+    if (!Curl_Data->Ssl_CertificateFormat.empty())
+    {
+        CURLcode Result = curl_easy_setopt(Curl_Data->Curl, CURLOPT_SSLCERTTYPE, Curl_Data->Ssl_CertificateFormat.c_str());
+        if (Result)
+        {
+            Curl_Log(Result);
+            return 1;
+        }
+    }
+
+    if (!Curl_Data->Ssl_PrivateKeyFileName.empty())
+    {
+        CURLcode Result = curl_easy_setopt(Curl_Data->Curl, CURLOPT_SSLKEY, Curl_Data->Ssl_PrivateKeyFileName.c_str());
+        if (Result)
+        {
+            Curl_Log(Result);
+            return 1;
+        }
+    }
+
+    if (!Curl_Data->Ssl_PrivateKeyFormat.empty())
+    {
+        CURLcode Result = curl_easy_setopt(Curl_Data->Curl, CURLOPT_SSLKEYTYPE, Curl_Data->Ssl_PrivateKeyFormat.c_str());
+        if (Result)
+        {
+            Curl_Log(Result);
+            return 1;
+        }
+    }
+
+    if (!Curl_Data->Ssl_CertificateAuthorityFileName.empty())
+    {
+        CURLcode Result = curl_easy_setopt(Curl_Data->Curl, CURLOPT_CAINFO, Curl_Data->Ssl_CertificateAuthorityFileName.c_str());
+        if (Result)
+        {
+            Curl_Log(Result);
+            return 1;
+        }
+    }
+
+    if (!Curl_Data->Ssl_CertificateAuthorityPath.empty())
+    {
+        CURLcode Result = curl_easy_setopt(Curl_Data->Curl, CURLOPT_CAPATH, Curl_Data->Ssl_CertificateAuthorityPath.c_str());
+        if (Result)
+        {
+            Curl_Log(Result);
+            return 1;
+        }
+    }
+    /*else
+    {
+        CURLcode res;
+        char* cainfo = NULL;
+        #define CURLINFO_STRING   0x100000
+        CURLINFO CURLINFO_CAINFO = (CURLINFO)(CURLINFO_STRING + 61);
+        curl_easy_getinfo(Curl_Data->Curl, CURLINFO_CAINFO, &cainfo);
+        if (cainfo)
+            fprintf(stderr, "default ca info path: %s\n", cainfo);
+    }*/
+
+    if (!Curl_Data->Ssl_CertificateRevocationListFileName.empty())
+    {
+        CURLcode Result = curl_easy_setopt(Curl_Data->Curl, CURLOPT_CRLFILE, Curl_Data->Ssl_CertificateRevocationListFileName.c_str());
+        if (Result)
+        {
+            Curl_Log(Result);
+            return 1;
+        }
+    }
+
+    if (Curl_Data->Ssl_IgnoreSecurity)
+    {
+        CURLcode Result = curl_easy_setopt(Curl_Data->Curl, CURLOPT_SSL_VERIFYPEER, 0);
+        if (Result)
+        {
+            Curl_Log(Result);
+            return 1;
+        }
+
+        Result = curl_easy_setopt(Curl_Data->Curl, CURLOPT_SSL_VERIFYHOST, 0);
+        if (Result)
+        {
+            Curl_Log(Result);
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 //---------------------------------------------------------------------------
 size_t Reader_libcurl::Format_Test_PerParser(MediaInfo_Internal* MI, const String &File_Name)
 {
@@ -994,7 +1148,8 @@ size_t Reader_libcurl::Format_Test_PerParser(MediaInfo_Internal* MI, const Strin
                     File_URL.User=PercentDecode(File_URL.User);
                     File_URL.Password=PercentDecode(File_URL.Password);
                 }
-                Amazon_AWS_Manage(File_URL, Curl_Data, HttpHeaderStrings);
+                if (Amazon_AWS_Manage(File_URL, this, HttpHeaderStrings))
+                    return 0;
             }
         }
 
@@ -1044,92 +1199,8 @@ size_t Reader_libcurl::Format_Test_PerParser(MediaInfo_Internal* MI, const Strin
 
         if (File_URL.Protocol=="https" || File_URL.Protocol=="ftps")
         {
-            if (!Curl_Data->Ssl_CertificateFileName.empty())
-            {
-                CURLcode Result=curl_easy_setopt(Curl_Data->Curl, CURLOPT_SSLCERT, Curl_Data->Ssl_CertificateFileName.c_str());
-                if (Result)
-                {
-                    Curl_Log(Result);
-                    return 0;
-                }
-            }
-
-            if (!Curl_Data->Ssl_CertificateFormat.empty())
-            {
-                CURLcode Result=curl_easy_setopt(Curl_Data->Curl, CURLOPT_SSLCERTTYPE, Curl_Data->Ssl_CertificateFormat.c_str());
-                if (Result)
-                {
-                    Curl_Log(Result);
-                    return 0;
-                }
-            }
-
-            if (!Curl_Data->Ssl_PrivateKeyFileName.empty())
-            {
-                CURLcode Result=curl_easy_setopt(Curl_Data->Curl, CURLOPT_SSLKEY, Curl_Data->Ssl_PrivateKeyFileName.c_str());
-                if (Result)
-                {
-                    Curl_Log(Result);
-                    return 0;
-                }
-            }
-
-            if (!Curl_Data->Ssl_PrivateKeyFormat.empty())
-            {
-                CURLcode Result=curl_easy_setopt(Curl_Data->Curl, CURLOPT_SSLKEYTYPE, Curl_Data->Ssl_PrivateKeyFormat.c_str());
-                if (Result)
-                {
-                    Curl_Log(Result);
-                    return 0;
-                }
-            }
-
-            if (!Curl_Data->Ssl_CertificateAuthorityFileName.empty())
-            {
-                CURLcode Result=curl_easy_setopt(Curl_Data->Curl, CURLOPT_CAINFO, Curl_Data->Ssl_CertificateAuthorityFileName.c_str());
-                if (Result)
-                {
-                    Curl_Log(Result);
-                    return 0;
-                }
-            }
-
-            if (!Curl_Data->Ssl_CertificateAuthorityPath.empty())
-            {
-                CURLcode Result=curl_easy_setopt(Curl_Data->Curl, CURLOPT_CAPATH, Curl_Data->Ssl_CertificateAuthorityPath.c_str());
-                if (Result)
-                {
-                    Curl_Log(Result);
-                    return 0;
-                }
-            }
-
-            if (!Curl_Data->Ssl_CertificateRevocationListFileName.empty())
-            {
-                CURLcode Result=curl_easy_setopt(Curl_Data->Curl, CURLOPT_CRLFILE, Curl_Data->Ssl_CertificateRevocationListFileName.c_str());
-                if (Result)
-                {
-                    Curl_Log(Result);
-                    return 0;
-                }
-            }
-
-            if (Curl_Data->Ssl_IgnoreSecurity)
-            {
-                CURLcode Result=curl_easy_setopt(Curl_Data->Curl, CURLOPT_SSL_VERIFYPEER, 0);
-                if (Result)
-                {
-                    Curl_Log(Result);
-                    return 0;
-                }
-
-                Result=curl_easy_setopt(Curl_Data->Curl, CURLOPT_SSL_VERIFYHOST, 0);
-                if (Result)
-                {
-                    Curl_Log(Result);
-                    return 0;
-                }
-            }
+            if (SetOptions())
+                return 0;
         }
     }
     string FileName_String=Ztring(Curl_Data->File_Name).To_UTF8();
@@ -1431,7 +1502,7 @@ size_t Reader_libcurl::Format_Test_PerParser_Continue (MediaInfo_Internal* MI)
                         }
                     }
                     Curl_Data->ErrorBuffer[0]='\0';
-                    MediaInfoLib::Config.Log_Send(0xC0, 0xFF, MessageCode, Reader_libcurl_FileNameWithoutPassword(Curl_Data->File_Name)+__T(", ")+MessageString);
+                    MediaInfoLib::Config.Log_Send(0xC0, 0xFF, MessageCode, Reader_libcurl_FileNameWithoutPasswordAndParameters(Curl_Data->File_Name)+__T(", ")+MessageString);
                 #endif //MEDIAINFO_EVENTS
             }
 
@@ -1486,7 +1557,7 @@ size_t Reader_libcurl::Format_Test_PerParser_Seek (MediaInfo_Internal* MI, size_
 //***************************************************************************
 
 //---------------------------------------------------------------------------
-bool Reader_libcurl::Load(const Ztring File_Name)
+bool Reader_libcurl::Load(const Ztring &File_Name)
 {
     #if defined MEDIAINFO_LIBCURL_DLL_RUNTIME
         if (libcurl_Module_Count==0)
@@ -1494,13 +1565,23 @@ bool Reader_libcurl::Load(const Ztring File_Name)
             size_t Errors=0;
 
             /* Load library */
+            #if defined(__APPLE__) && defined(__MACH__)
+                #define MEDIAINFODLL_NAME  "libcurl.4.dylib"
+                #define __stdcall
+            #elif !defined (_WIN32) && !defined (WIN32)
+                #define MEDIAINFODLL_NAME  "libcurl.so.4"
+                #define __stdcall
+            #endif //!defined(_WIN32) || defined (WIN32)
             #ifdef MEDIAINFO_GLIBC
                 libcurl_Module=g_module_open(MEDIAINFODLL_NAME, G_MODULE_BIND_LAZY);
             #elif defined (_WIN32) || defined (WIN32)
                 #ifdef WINDOWS_UWP
-                    libcurl_Module=LoadPackagedLibrary(MEDIAINFODLL_NAME, 0);
+                    libcurl_Module=LoadPackagedLibrary(__T("libcurl.dll"), 0);
                 #else
-                    libcurl_Module=LoadLibrary(MEDIAINFODLL_NAME);
+                    if (sizeof(size_t)==8)
+                        libcurl_Module=LoadLibrary(__T("libcurl-x64.dll"));
+                    if (!libcurl_Module)
+                        libcurl_Module=LoadLibrary(__T("libcurl.dll"));
                 #endif
             #else
                 libcurl_Module=dlopen(MEDIAINFODLL_NAME, RTLD_LAZY);
@@ -1519,7 +1600,7 @@ bool Reader_libcurl::Load(const Ztring File_Name)
             {
                 #if MEDIAINFO_EVENTS
                     if (!File_Name.empty())
-                        MediaInfoLib::Config.Log_Send(0xC0, 0xFF, 0, Reader_libcurl_FileNameWithoutPassword(File_Name)+__T(", Libcurl library is not found"));
+                        MediaInfoLib::Config.Log_Send(0xC0, 0xFF, 0, Reader_libcurl_FileNameWithoutPasswordAndParameters(File_Name)+__T(", Libcurl library is not found"));
                 #endif //MEDIAINFO_EVENTS
                 return 0;
             }
@@ -1544,7 +1625,7 @@ bool Reader_libcurl::Load(const Ztring File_Name)
             {
                 #if MEDIAINFO_EVENTS
                     if (!File_Name.empty())
-                        MediaInfoLib::Config.Log_Send(0xC0, 0xFF, 0, Reader_libcurl_FileNameWithoutPassword(File_Name)+__T(", Libcurl library is not correctly loaded"));
+                        MediaInfoLib::Config.Log_Send(0xC0, 0xFF, 0, Reader_libcurl_FileNameWithoutPasswordAndParameters(File_Name)+__T(", Libcurl library is not correctly loaded"));
                 #endif //MEDIAINFO_EVENTS
                 return 0;
             }

@@ -42,6 +42,7 @@ namespace MediaInfoLib
 //***************************************************************************
 
 File_ChannelGrouping::File_ChannelGrouping()
+:File_Pcm_Base()
 {
     //Configuration
     #if MEDIAINFO_EVENTS
@@ -59,7 +60,6 @@ File_ChannelGrouping::File_ChannelGrouping()
     //In
     BitDepth=0;
     SamplingRate=0;
-    Endianness=0;
     Aligned=false;
     CanBePcm=false;
     Common=NULL;
@@ -135,7 +135,7 @@ void File_ChannelGrouping::Read_Buffer_Init()
         //SMPTE ST 337
         {
             File_SmpteSt0337* Parser=new File_SmpteSt0337;
-            Parser->Container_Bits=BitDepth;
+            Parser->BitDepth=BitDepth;
             Parser->Endianness=Endianness;
             Parser->Aligned=Aligned;
             Common->Parsers.push_back(Parser);
@@ -329,7 +329,7 @@ void File_ChannelGrouping::Read_Buffer_Continue()
             {
                 if (!Common->Parsers[Pos]->Status[IsAccepted] && Common->Parsers[Pos]->Status[IsFinished])
                 {
-                    delete *(Common->Parsers.begin()+Pos);
+                    delete static_cast<MediaInfoLib::File__Analyze*>(*(Common->Parsers.begin()+Pos));
                     Common->Parsers.erase(Common->Parsers.begin()+Pos);
                     Pos--;
                 }
@@ -339,7 +339,7 @@ void File_ChannelGrouping::Read_Buffer_Continue()
                     for (size_t Pos2=0; Pos2<Common->Parsers.size(); Pos2++)
                     {
                         if (Pos2!=Pos)
-                            delete *(Common->Parsers.begin()+Pos2);
+                            delete static_cast<MediaInfoLib::File__Analyze*>(*(Common->Parsers.begin()+Pos2));
                     }
                     Common->Parsers.clear();
                     Common->Parsers.push_back(Parser);

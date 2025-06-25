@@ -17,6 +17,69 @@
 //---------------------------------------------------------------------------
 
 //---------------------------------------------------------------------------
+#if defined(MEDIAINFO_REFERENCES_YES) || defined(MEDIAINFO_JSON_YES)
+//---------------------------------------------------------------------------
+
+#include <string>
+
+namespace MediaInfoLib
+{
+
+//***************************************************************************
+// Utils
+//***************************************************************************
+
+//---------------------------------------------------------------------------
+static unsigned char Hex2Char (unsigned char Value)
+{
+         if (Value<=0x9)
+        Value+='0';
+    else if (Value<=0xF)
+        Value+='A'-10;
+    else
+        Value =0;
+    return Value;
+}
+
+//---------------------------------------------------------------------------
+std::string URL_Encoded_Encode(const std::string& URL)
+{
+    std::string Result;
+    for (std::string::size_type Pos=0; Pos<URL.size(); Pos++)
+    {
+        auto Char=URL[Pos];
+        if (Char<=0x2C
+         || Char==0x2E
+         || Char==0x2F
+         || Char==0x3A
+         || Char==0x3B
+         || Char==0x3D
+         || Char==0x3F
+         || Char==0x40
+         || Char==0x5B
+         || Char==0x5D
+//#if defined(__APPLE__) && defined(__MACH__) // URL is rejected by API on macOS, not considered as URL by Thunderbird
+         || Char=='{'
+         || Char=='}'
+         || Char=='\\'
+//#endif
+        )
+        {
+            Result+='%';
+            Result+=Hex2Char(Char>>4);
+            Result+=Hex2Char(Char&0xF);
+        }
+        else
+            Result+=Char;
+    }
+    return Result;
+}
+
+}
+
+#endif
+
+//---------------------------------------------------------------------------
 #if defined(MEDIAINFO_REFERENCES_YES)
 //---------------------------------------------------------------------------
 
@@ -42,6 +105,77 @@ using namespace std;
 namespace MediaInfoLib
 {
 
+
+//***************************************************************************
+// Utils
+//***************************************************************************
+
+//---------------------------------------------------------------------------
+static unsigned char Char2Hex (unsigned char Char)
+{
+         if (Char<='9' && Char>='0')
+        Char-='0';
+    else if (Char<='f' && Char>='a')
+        Char-='a'-10;
+    else if (Char<='F' && Char>='A')
+        Char-='A'-10;
+    else
+        Char =0;
+    return Char;
+}
+
+//---------------------------------------------------------------------------
+std::wstring URL_Encoded_Decode (const std::wstring& URL)
+{
+    wstring Result;
+    wstring::size_type Pos;
+    for (Pos=0; Pos<URL.size(); Pos++)
+    {
+        if (URL[Pos]==L'%' && Pos+2<URL.size()) //At least 3 chars
+        {
+            int32u Char1 = Char2Hex(URL[Pos+1]);
+            int32u Char2 = Char2Hex(URL[Pos+2]);
+            int32u Char  = (Char1<<4) | Char2;
+            if (Char>=0xC2 && Char<=0xF4)
+            {
+                //Handle as UTF-8
+                auto AdditionalBytes_Real=0;
+                auto AdditionalBytes_Theory=Char>=0xF0?3:(Char>=0xE0?2:1);
+                Char&=AdditionalBytes_Theory>0xF0?0x1F:0x0F;
+                if (Pos+(AdditionalBytes_Theory+1)*3<=URL.size())
+                {
+                    for (auto i=0; i<AdditionalBytes_Theory; i++)
+                        if (URL[Pos+3*i]!=L'%' )
+                            AdditionalBytes_Theory=0;
+                    for (auto i=0; i<AdditionalBytes_Theory; i++)
+                    {
+                        auto Base=Pos+(i+1)*3+1;
+                        Char1 = Char2Hex(URL[Base]);
+                        Char2 = Char2Hex(URL[Base+1]);
+                        Char  = (Char<<6) | ((Char1&0x3)<<4) | Char2;
+                    }
+                    Pos+=3*AdditionalBytes_Theory; //3 additional chars per extra are used
+                }
+            }
+            if (sizeof(wchar_t)==4 || Char<=0xD800)
+                Result+=(wchar_t)Char;
+            else
+            {
+                //Output as UTF-16
+                Char-=0x10000;
+                Result+=0xD800|((wchar_t)(Char>>10));
+                Result+=0xDC00|((wchar_t)(Char&((1<<10)-1)));
+            }
+            Pos+=2; //3 chars are used
+        }
+        else if (URL[Pos]==L'+')
+            Result+=L' ';
+        else
+            Result+=URL[Pos];
+    }
+    return Result;
+}
+
 //***************************************************************************
 // Constructor/Destructor
 //***************************************************************************
@@ -63,7 +197,9 @@ File__ReferenceFilesHelper::File__ReferenceFilesHelper(File__Analyze* MI_, Media
     Duration=0;
     #if MEDIAINFO_DEMUX
         Demux_Interleave=false;
+    #if MEDIAINFO_NEXTPACKET
         DTS_Minimal=(int64u)-1;
+	#endif
     #endif //MEDIAINFO_DEMUX
     #if MEDIAINFO_EVENTS
         StreamID_Previous=(int64u)-1;
@@ -431,6 +567,8 @@ void File__ReferenceFilesHelper::ParseReferences()
                         EditRate_Count++;
                     }
                 }
+        /*
+        //It was used for demux with seek, not used in practice in the open source version, and it has bad side effects so currently disabled, we should find a better way to do that
         if (EditRate_Count>1)
             //Multiple rates, using only one rate
             for (Sequences_Current=0; Sequences_Current<Sequences.size(); Sequences_Current++)
@@ -460,6 +598,7 @@ void File__ReferenceFilesHelper::ParseReferences()
                         }
                         Sequences[Sequences_Current]->Resources[Pos]->EditRate=EditRate;
                     }
+        */
 
         //Testing IDs
         std::set<int64u> StreamList;
@@ -503,22 +642,26 @@ void File__ReferenceFilesHelper::ParseReferences()
         {
             ZtringList Names=Sequences[Sequences_Current]->FileNames;
             ZtringList AbsoluteNames; AbsoluteNames.Separator_Set(0, ",");
+            bool IsUrlEncoded=false;
             for (size_t Pos=0; Pos<Names.size(); Pos++)
             {
                 if (Names[Pos].find(__T("file:///"))==0)
                 {
                     Names[Pos].erase(0, 8); //Removing "file:///", this is the default behaviour and this makes comparison easier
-                    Names[Pos]=ZenLib::Format::Http::URL_Encoded_Decode(Names[Pos]);
+                    Names[Pos].From_Unicode(URL_Encoded_Decode(Names[Pos].To_Unicode()));
+                    IsUrlEncoded=true;
                 }
                 if (Names[Pos].find(__T("file://"))==0)
                 {
                     Names[Pos].erase(0, 7); //Removing "file://", this is the default behaviour and this makes comparison easier
-                    Names[Pos]=ZenLib::Format::Http::URL_Encoded_Decode(Names[Pos]);
+                    Names[Pos].From_Unicode(URL_Encoded_Decode(Names[Pos].To_Unicode()));
+                    IsUrlEncoded=true;
                 }
                 if (Names[Pos].find(__T("file:"))==0)
                 {
                     Names[Pos].erase(0, 5); //Removing "file:", this is the default behaviour and this makes comparison easier
-                    Names[Pos]=ZenLib::Format::Http::URL_Encoded_Decode(Names[Pos]);
+                    Names[Pos].From_Unicode(URL_Encoded_Decode(Names[Pos].To_Unicode()));
+                    IsUrlEncoded=true;
                 }
                 Ztring AbsoluteName;
                 if (Names[Pos].find(__T(':'))!=1 && Names[Pos].find(__T("/"))!=0 && Names[Pos].find(__T("\\\\"))!=0) //If absolute patch
@@ -550,7 +693,8 @@ void File__ReferenceFilesHelper::ParseReferences()
                 //Configuring file name (this time, we try to force URL decode in all cases)
                 for (size_t Pos=0; Pos<Names.size(); Pos++)
                 {
-                    Names[Pos]=ZenLib::Format::Http::URL_Encoded_Decode(Names[Pos]);
+                    Names[Pos].From_Unicode(URL_Encoded_Decode(Names[Pos].To_Unicode()));
+                    IsUrlEncoded=true;
                     Ztring AbsoluteName;
                     if (Names[Pos].find(__T(':'))!=1 && Names[Pos].find(__T("/"))!=0 && Names[Pos].find(__T("\\\\"))!=0) //If absolute patch
                     {
@@ -658,13 +802,16 @@ void File__ReferenceFilesHelper::ParseReferences()
                                 }
 
                                 if (!AbsoluteNames.empty() && !File::Exists(AbsoluteNames[0]))
+                                {
                                     AbsoluteNames.clear();
+                                    IsUrlEncoded=false;
+                                }
                             }
                         }
                     }
                 }
             }
-            Sequences[Sequences_Current]->Source=Sequences[Sequences_Current]->FileNames.Read(0);
+            Sequences[Sequences_Current]->Source=IsUrlEncoded?Ztring().From_Unicode(URL_Encoded_Decode(Sequences[Sequences_Current]->FileNames.Read(0).To_Unicode())).c_str():Sequences[Sequences_Current]->FileNames.Read(0);
             if (Sequences[Sequences_Current]->StreamKind!=Stream_Max && !Sequences[Sequences_Current]->Source.empty())
             {
                 if (Sequences[Sequences_Current]->StreamPos==(size_t)-1)
@@ -906,7 +1053,7 @@ bool File__ReferenceFilesHelper::ParseReference_Init()
         {
             if (Sequences[Sequences_Current]->Resources[0]->EditRate)
             {
-                #if MEDIAINFO_DEMUX
+                #if MEDIAINFO_DEMUX && MEDIAINFO_NEXTPACKET
                     if (Pos==0)
                     {
                         Sequences[Sequences_Current]->Resources[0]->Demux_Offset_DTS=0;
@@ -933,7 +1080,7 @@ bool File__ReferenceFilesHelper::ParseReference_Init()
                 MI2.Option(__T("Demux"), Demux_Save); //This is a global value, need to reset it. TODO: local value
                 if (MiOpenResult)
                 {
-                    #if MEDIAINFO_DEMUX
+                    #if MEDIAINFO_DEMUX && MEDIAINFO_NEXTPACKET
                         int64u Duration=MI2.Get(Sequences[Sequences_Current]->StreamKind, 0, __T("Duration")).To_int64u()*1000000;
                         int64u FrameCount=MI2.Get(Sequences[Sequences_Current]->StreamKind, 0, __T("FrameCount")).To_int64u();
                         if (Pos==0)
@@ -964,7 +1111,7 @@ bool File__ReferenceFilesHelper::ParseReference_Init()
                 else
                     Sequences[Sequences_Current]->Resources[Pos]->MI->Config.File_IgnoreEditsAfter=Sequences[Sequences_Current]->Resources[Pos]->IgnoreEditsAfter;
                 Sequences[Sequences_Current]->Resources[Pos]->MI->Config.File_EditRate=Sequences[Sequences_Current]->Resources[Pos]->EditRate;
-                #if MEDIAINFO_DEMUX
+                #if MEDIAINFO_DEMUX && MEDIAINFO_NEXTPACKET
                     Sequences[Sequences_Current]->Resources[Pos]->MI->Config.Demux_Offset_Frame=Sequences[Sequences_Current]->Resources[Pos]->Demux_Offset_Frame;
                     Sequences[Sequences_Current]->Resources[Pos]->MI->Config.Demux_Offset_DTS=Sequences[Sequences_Current]->Resources[Pos]->Demux_Offset_DTS;
                 #endif //MEDIAINFO_DEMUX
@@ -978,7 +1125,7 @@ bool File__ReferenceFilesHelper::ParseReference_Init()
             else
                 Sequences[Sequences_Current]->MI->Config.File_IgnoreEditsAfter=Sequences[Sequences_Current]->Resources[0]->IgnoreEditsAfter;
             Sequences[Sequences_Current]->MI->Config.File_EditRate=Sequences[Sequences_Current]->Resources[0]->EditRate;
-            #if MEDIAINFO_DEMUX
+            #if MEDIAINFO_DEMUX && MEDIAINFO_NEXTPACKET
                 Sequences[Sequences_Current]->MI->Config.Demux_Offset_Frame=Sequences[Sequences_Current]->Resources[0]->Demux_Offset_Frame;
                 Sequences[Sequences_Current]->MI->Config.Demux_Offset_DTS=Sequences[Sequences_Current]->Resources[0]->Demux_Offset_DTS;
             #endif //MEDIAINFO_DEMUX
@@ -1073,7 +1220,8 @@ void File__ReferenceFilesHelper::ParseReference()
                     }
                 #endif //MEDIAINFO_DEMUX
 
-                DTS_Temp+=Sequences[Sequences_Current]->Resources[Sequences[Sequences_Current]->Resources_Current]->Demux_Offset_DTS;
+                if (!Sequences[Sequences_Current]->Resources.empty())
+                    DTS_Temp+=Sequences[Sequences_Current]->Resources[Sequences[Sequences_Current]->Resources_Current]->Demux_Offset_DTS;
                 if (!Sequences[Sequences_Current]->Resources.empty() && Sequences[Sequences_Current]->Resources_Current<Sequences[Sequences_Current]->Resources.size() && Sequences[Sequences_Current]->Resources[Sequences[Sequences_Current]->Resources_Current]->EditRate && Sequences[Sequences_Current]->Resources[Sequences[Sequences_Current]->Resources_Current]->IgnoreEditsBefore)
                 {
                     int64u TimeOffset=float64_int64s(((float64)Sequences[Sequences_Current]->Resources[Sequences[Sequences_Current]->Resources_Current]->IgnoreEditsBefore)/Sequences[Sequences_Current]->Resources[Sequences[Sequences_Current]->Resources_Current]->EditRate*1000000000);
@@ -1294,7 +1442,11 @@ void File__ReferenceFilesHelper::ParseReference_Finalize_PerStream ()
                 MI2.Config.File_IgnoreEditsAfter=Sequences[Sequences_Current]->Resources[Pos]->IgnoreEditsAfter;
             MI2.Config.File_EditRate=Sequences[Sequences_Current]->Resources[Pos]->EditRate;
             Sequences[Sequences_Current]->Resources[Pos]->FileNames.Separator_Set(0, ",");
-            size_t MiOpenResult=MI2.Open(Sequences[Sequences_Current]->Resources[Pos]->FileNames.Read());
+            if (FrameRate)
+                MI2.Option(__T("File_Demux_Rate"), Ztring::ToZtring(FrameRate));
+            else if (!Sequences[Sequences_Current]->Resources.empty() && Sequences[Sequences_Current]->Resources[0]->EditRate) //TODO: per Pos
+                MI2.Option(__T("File_Demux_Rate"), Ztring::ToZtring(Sequences[Sequences_Current]->Resources[0]->EditRate));
+            size_t MiOpenResult = (!Sequences[Sequences_Current]->Resources.empty()) ? MI2.Open(Sequences[Sequences_Current]->Resources[Pos]->FileNames.Read()) : 0;
             MI2.Option(__T("ParseSpeed"), ParseSpeed_Save); //This is a global value, need to reset it. TODO: local value
             MI2.Option(__T("Demux"), Demux_Save); //This is a global value, need to reset it. TODO: local value
             if (MiOpenResult)
@@ -1704,6 +1856,10 @@ MediaInfo_Internal* File__ReferenceFilesHelper::MI_Create()
             MI_Temp->Option(__T("File_SubFile_IDs_Set"), SubFile_IDs.Read());
         }
     #endif //MEDIAINFO_EVENTS
+    if (FrameRate)
+        MI_Temp->Option(__T("File_Demux_Rate"), Ztring::ToZtring(FrameRate));
+    else if (!Sequences[Sequences_Current]->Resources.empty() && Sequences[Sequences_Current]->Resources[0]->EditRate) //TODO: per Pos
+        MI_Temp->Option(__T("File_Demux_Rate"), Ztring::ToZtring(Sequences[Sequences_Current]->Resources[0]->EditRate));
     #if MEDIAINFO_DEMUX
         if (Config->Demux_Unpacketize_Get())
             MI_Temp->Option(__T("File_Demux_Unpacketize"), __T("1"));
@@ -1711,10 +1867,6 @@ MediaInfo_Internal* File__ReferenceFilesHelper::MI_Create()
             MI_Temp->Option(__T("File_Demux_Avc_Transcode_Iso14496_15_to_Iso14496_10"), __T("1"));
         if (Config->Demux_Hevc_Transcode_Iso14496_15_to_AnnexB_Get())
             MI_Temp->Option(__T("File_Demux_Hevc_Transcode_Iso14496_15_to_AnnexB"), __T("1"));
-        if (FrameRate)
-            MI_Temp->Option(__T("File_Demux_Rate"), Ztring::ToZtring(FrameRate));
-        else if (!Sequences[Sequences_Current]->Resources.empty() && Sequences[Sequences_Current]->Resources[0]->EditRate) //TODO: per Pos
-            MI_Temp->Option(__T("File_Demux_Rate"), Ztring::ToZtring(Sequences[Sequences_Current]->Resources[0]->EditRate));
         switch (Config->Demux_InitData_Get())
         {
             case 0 : MI_Temp->Option(__T("File_Demux_InitData"), __T("Event")); break;
@@ -1748,7 +1900,9 @@ void File__ReferenceFilesHelper::Read_Buffer_Unsynched()
             Sequences[Sequences_Pos]->MI->Open_Buffer_Unsynch();
 
     #if MEDIAINFO_DEMUX
+	#if MEDIAINFO_NEXTPACKET
         DTS_Minimal=(int64u)-1;
+	#endif
         Config->Demux_EventWasSent=true; //We want not try to read new data from the file
     #endif //MEDIAINFO_DEMUX
 

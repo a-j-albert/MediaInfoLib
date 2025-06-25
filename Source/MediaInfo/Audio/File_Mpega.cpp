@@ -346,6 +346,11 @@ File_Mpega::File_Mpega()
 //---------------------------------------------------------------------------
 void File_Mpega::Streams_Fill()
 {
+    File__Tags_Helper::Stream_Prepare(Stream_Audio);
+    Fill(Stream_Audio, 0, Audio_Format, "MPEG Audio");
+    if (!Frame_Count)
+        return;
+
     //VBR detection without header
     if (VBR_Frames==0)
     {
@@ -354,8 +359,6 @@ void File_Mpega::Streams_Fill()
             BitRate_Mode=__T("VBR");
     }
 
-    File__Tags_Helper::Stream_Prepare(Stream_Audio);
-    Fill(Stream_Audio, 0, Audio_Format, "MPEG Audio");
     Fill(Stream_Audio, 0, Audio_Format_Version, Mpega_Format_Profile_Version[ID]);
     Fill(Stream_Audio, 0, Audio_Format_Profile, Mpega_Format_Profile_Layer[layer]);
     if (mode && mode<4)
@@ -581,7 +584,7 @@ bool File_Mpega::FileHeader_Begin()
 
     //Seems OK
     if (!Frame_Count_Valid)
-        Frame_Count_Valid=Config->ParseSpeed>=0.5?128:(Config->ParseSpeed>=0.3?32:4);
+        Frame_Count_Valid=Config->ParseSpeed>=0.5?128:(Config->ParseSpeed>=0.3?32:(IsSub?1:4));
     return true;
 }
 
@@ -687,12 +690,12 @@ bool File_Mpega::Synchronize()
                     {
                         //Testing VBRI in a malformed frame
                         bool VbriFound=false;
-                        for (size_t Pos=Buffer_Offset+3; Pos+4<Buffer_Offset+Size0; Pos++)
+                        for (size_t Pos=Buffer_Offset+4; Pos+4<Buffer_Offset+Size0; Pos++)
                         {
-                            if (Buffer[Pos  ]==0x56
-                             && Buffer[Pos+1]==0x42
-                             && Buffer[Pos+2]==0x52
-                             && Buffer[Pos+3]==0x49)
+                           int32u ToTest=CC4(Buffer+Pos);
+                            if (ToTest==0x496E666F  // "Info"
+                             || ToTest==0x56425249  // "VBRI"
+                             || ToTest==0x58696E67) // "Xing"
                             {
                                 VbriFound=true;
                                 break;
@@ -840,7 +843,7 @@ bool File_Mpega::Synched_Test()
      || (Buffer[Buffer_Offset+2]&0xF0)==0xF0
      || (Buffer[Buffer_Offset+2]&0x0C)==0x0C)
     {
-        Synched=false;
+        SynchLost("MPEG-Audio");
         return true;
     }
 
@@ -851,7 +854,7 @@ bool File_Mpega::Synched_Test()
     int8u sampling_frequency0=(CC1(Buffer+Buffer_Offset+2)>>2)&0x03;
     if (Mpega_SamplingRate[ID0][sampling_frequency0]==0 || Mpega_Coefficient[ID0][layer0]==0 || Mpega_BitRate[ID0][layer0][bitrate_index0]==0 || Mpega_SlotSize[layer0]==0)
     {
-        Synched=false;
+        SynchLost("MPEG Audio");
         return true;
     }
 
@@ -979,8 +982,11 @@ void File_Mpega::Data_Parse()
     }
 
     //Partial frame
-    if (Header_Size + Element_Size<((int64u)Mpega_Coefficient[ID][layer] * (int64u)Mpega_BitRate[ID][layer][bitrate_index] * 1000 / (int64u)Mpega_SamplingRate[ID][sampling_frequency] + (padding_bit ? 1 : 0)) * (int64u)Mpega_SlotSize[layer])
+    auto FrameSize = ((int64u)Mpega_Coefficient[ID][layer] * (int64u)Mpega_BitRate[ID][layer][bitrate_index] * 1000 / (int64u)Mpega_SamplingRate[ID][sampling_frequency] + (padding_bit ? 1 : 0))* (int64u)Mpega_SlotSize[layer];
+    auto RealFrameSize = Header_Size + Element_Size;
+    if (RealFrameSize < FrameSize)
     {
+        IsTruncated(File_Offset+Buffer_Offset+RealFrameSize, true, "MPEG-Audio");
         Element_Name("Partial frame");
         Skip_XX(Element_Size,                                   "Data");
         return;
@@ -1442,6 +1448,8 @@ void File_Mpega::Header_Encoders_Lame()
              ||  Tag[4]=='3' && Tag[8]>='0' && Tag[8]<='9')                                                     // v3.xy0-v3.xy9
                 HasInfoTag=true;
         }
+        if (Name==0x4C414D45 && Tag[4]=='H') // "LAMEH", Helix MP3 encoder
+            HasInfoTag=true;
         if (Name==0x4C332E39   // "L3.9"
          && Tag[4]=='9')
             HasInfoTag=true; //Form old code, to be confirmed: Ugly version string in Lame 3.99.1 "L3.99r1\0".

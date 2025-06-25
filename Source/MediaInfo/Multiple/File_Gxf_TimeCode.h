@@ -39,6 +39,8 @@ public :
     int32u FrameRate_Code;
     int32u FieldsPerFrame_Code;
     bool   IsAtc; // SMPTE ST 12-2
+    bool   IsBigEndian;
+    bool   IsTimeCodeTrack;
 
     //Out
     int64u TimeCode_FirstFrame_ms;

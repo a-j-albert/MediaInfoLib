@@ -97,6 +97,7 @@ public :
 
 private :
     //Streams management
+    void Streams_Accept();
     void Streams_Fill();
     void Streams_Update();
     void Streams_Finish();
@@ -276,11 +277,13 @@ private :
     bool Header_Parser_QuickSearch();
 
     //Parsers
+    File__Analyze* ChooseParser_Ancillary();
     File__Analyze* ChooseParser_Mpegv();
     File__Analyze* ChooseParser_Mpeg4v();
     File__Analyze* ChooseParser_Avc();
     File__Analyze* ChooseParser_Hevc();
     File__Analyze* ChooseParser_VC1();
+    File__Analyze* ChooseParser_Avs3V();
     File__Analyze* ChooseParser_Dirac();
     File__Analyze* ChooseParser_Mpega();
     File__Analyze* ChooseParser_Mpegh3da();

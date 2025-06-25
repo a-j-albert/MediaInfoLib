@@ -30,7 +30,9 @@ class File_Flac : public File__Analyze, public File__Tags_Helper
 {
 public :
     //In
+    bool NoFileHeader;
     bool VorbisHeader;
+    bool FromIamf;
 
     //Constructor/Destructor
     File_Flac();
@@ -61,6 +63,7 @@ private :
 
     //Temp
     bool Last_metadata_block;
+    bool IsAudioFrames;
 };
 
 //***************************************************************************

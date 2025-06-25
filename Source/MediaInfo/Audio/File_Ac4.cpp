@@ -34,6 +34,8 @@ using namespace std;
 namespace MediaInfoLib
 {
 
+typedef File_Ac4::dmx::cdmx::gain::type gain;
+    
 //***************************************************************************
 // Infos
 //***************************************************************************
@@ -594,8 +596,8 @@ static const char* AC4_nonstd_bed_channel_assignment_mask_ChannelLayout_List[17+
     "Rb",
     "Tfl",
     "Tfr",
-    "Tl",
-    "Tr",
+    "Tsl", //Tl
+    "Tsr", //Tr
     "Tbl",
     "Tbr",
     "Lw",
@@ -614,18 +616,50 @@ static const char* AC4_nonstd_bed_channel_assignment_mask_ChannelLayout_List[17+
     "Tfc",
     "Tbc",
 };
-static Ztring AC4_nonstd_bed_channel_assignment_mask_ChannelLayout(int32u nonstd_bed_channel_assignment_mask)
+static int8s AC4_nonstd_bed_channel_assignment_mask_ChannelLayout_Reordering[17+11] =
+{
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    6, // Wide channels before top layer
+    6, // Wide channels before top layer
+    -2,
+    -2,
+    -2,
+    -2,
+    -2,
+    -2,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+};
+static Ztring AC4_nonstd_bed_channel_assignment_mask_ChannelLayout(int32u nonstd_bed_channel_assignment_mask, size_t Groups_Size=0)
 {
     if (!nonstd_bed_channel_assignment_mask)
-        return __T("C");
+        return Groups_Size==1?__T("M"):__T("C");
     
     Ztring ToReturn;
 
     for (int8u i=0; i<17+11; i++)
     {
-        if (nonstd_bed_channel_assignment_mask&(1<<i))
+        int8u i2=i+AC4_nonstd_bed_channel_assignment_mask_ChannelLayout_Reordering[i];
+        if (nonstd_bed_channel_assignment_mask&(1<<i2))
         {
-            ToReturn+=Ztring().From_UTF8(AC4_nonstd_bed_channel_assignment_mask_ChannelLayout_List[i]);
+            ToReturn+=Ztring().From_UTF8(AC4_nonstd_bed_channel_assignment_mask_ChannelLayout_List[i2]);
             ToReturn+=__T(' ');
         }
     }
@@ -1024,6 +1058,51 @@ static const int8s de_hcb_diff_1[120][2] = {
     {  -7,   -8}
 };
 
+//---------------------------------------------------------------------------
+static const char* out_ch_config_Values[] =
+{
+    "5.1",
+    "5.1.2",
+    "5.1.4",
+    "7.1",
+    "7.1.2",
+};
+static constexpr size_t out_ch_config_Size=sizeof(out_ch_config_Values)/sizeof(const char*);
+
+//---------------------------------------------------------------------------
+static const float32 gain_f1_Values(int8u code)
+{
+    if (code>=7)
+        return -INFINITY;
+    return 1.5*(-((int)code)+2);
+};
+
+//---------------------------------------------------------------------------
+static const float32 gain_xx_Values(int8u code)
+{
+    if (code>=7)
+        return -INFINITY;
+    if (code>=4)
+        return 3*(-((int)code)+2);
+    return 1.5*(-((int)code));
+};
+
+//---------------------------------------------------------------------------
+static const char* gain_Text[] =
+{
+    "ScreenToCenter",
+    "ScreenToFront",
+    "Back4ToBack2",
+    "Top4ToTop2",
+    "TopFrontToFront",
+    "TopFrontToSide",
+    "TopFrontToBack",
+    "TopBackToFront",
+    "TopBackToSide",
+    "TopBackToBack",
+};
+static constexpr size_t gain_Size=sizeof(gain_Text)/sizeof(const char*);
+
 //***************************************************************************
 // Constructor/Destructor
 //***************************************************************************
@@ -1037,7 +1116,7 @@ File_Ac4::File_Ac4()
         Trace_Layers_Update(8); //Stream
     #endif //MEDIAINFO_TRACE
     MustSynchronize=true;
-    Buffer_TotalBytes_FirstSynched_Max=32*1024;
+    Buffer_TotalBytes_FirstSynched_Max=64*1024;
     Buffer_TotalBytes_Fill_Max=1024*1024;
     PTS_DTS_Needed=true;
     StreamSource=IsStream;
@@ -1073,7 +1152,7 @@ void File_Ac4::Streams_Fill()
         {
             set<size_t>::iterator It=IFrames_IsVariable.begin();
             size_t Value1=*It;
-            It++;
+            ++It;
             size_t Value2=*It;
             if (Value1+1==Value2)
             {
@@ -1112,6 +1191,8 @@ void File_Ac4::Streams_Fill()
     //Filling
     if (!Presentations.empty())
         Fill(Stream_Audio, 0, "NumberOfPresentations", Presentations.size());
+    if (!Groups.empty() && bitstream_version>=2)
+        Fill(Stream_Audio, 0, "NumberOfGroups", Groups.size());
     if (!AudioSubstreams.empty())
         Fill(Stream_Audio, 0, "NumberOfSubstreams", AudioSubstreams.size());
 
@@ -1353,6 +1434,21 @@ void File_Ac4::Streams_Fill()
                 if (D.preferred_dmx_method!=(int8u)-1)
                     Fill(Stream_Audio, 0, (P+" Downmix PreferredDownmix").c_str(), Value(Ac4_preferred_dmx_method, D.preferred_dmx_method));
             }
+            if (!D.Cdmxs.empty())
+            {
+                Fill(Stream_Audio, 0, (P+" Downmix CustomDownmixTargets").c_str(), "Yes");
+                for (size_t c=0; c<D.Cdmxs.size(); c++)
+                {
+                    const auto& C=D.Cdmxs[c];
+                    const auto Pdc=P+" Downmix CustomDownmixTargets "+string(out_ch_config_Values[C.out_ch_config])+"ch";
+                    Fill(Stream_Audio, 0, Pdc.c_str(), "Yes");
+                    for (size_t g=0; g<C.Gains.size(); g++)
+                    {
+                        const auto& G=C.Gains[g];
+                        Fill_Measure(Stream_Audio, 0, (Pdc+' '+gain_Text[(size_t)G.Type]).c_str(), gain_xx_Values(G.Value), " dB", 1);
+                    }
+                }
+            }
         }
 
         ZtringList GroupPos, GroupNum;
@@ -1481,7 +1577,7 @@ void File_Ac4::Streams_Fill()
                 continue;
             size_t AudioSubstream_Pos=0;
             std::map<int8u, substream_type_t>::iterator Substream_Type_Item=Substream_Type.begin();
-            for (; Substream_Type_Item!=Substream_Type.end() && Substream_Type_Item->first!=GroupInfo.substream_index; Substream_Type_Item++)
+            for (; Substream_Type_Item!=Substream_Type.end() && Substream_Type_Item->first!=GroupInfo.substream_index; ++Substream_Type_Item)
                 if (Substream_Type_Item->second==Type_Ac4_Substream)
                     AudioSubstream_Pos++;
             if (Substream_Type_Item==Substream_Type.end())
@@ -1496,7 +1592,7 @@ void File_Ac4::Streams_Fill()
         Fill(Stream_Audio, 0, (G+" LinkedTo_Substream_Pos/String").c_str(), SubstreamNum.Read());
         Fill_SetOptions(Stream_Audio, 0, (G+" LinkedTo_Substream_Pos/String").c_str(), "Y NIN");
     }
-    for (map<int8u, audio_substream>::iterator Substream_Info=AudioSubstreams.begin(); Substream_Info!=AudioSubstreams.end(); Substream_Info++)
+    for (map<int8u, audio_substream>::iterator Substream_Info=AudioSubstreams.begin(); Substream_Info!=AudioSubstreams.end(); ++Substream_Info)
     {
         string ChannelMode, ImmersiveStereo;
         for (size_t g=0; g<Groups.size(); g++)
@@ -1574,7 +1670,7 @@ void File_Ac4::Streams_Fill()
             Summary="?";
         }
         size_t AudioSubstream_Pos=0;
-        for (std::map<int8u, substream_type_t>::iterator Substream_Type_Item=Substream_Type.begin(); Substream_Type_Item!=Substream_Type.end() && Substream_Type_Item->first!=Substream_Info->first; Substream_Type_Item++)
+        for (std::map<int8u, substream_type_t>::iterator Substream_Type_Item=Substream_Type.begin(); Substream_Type_Item!=Substream_Type.end() && Substream_Type_Item->first!=Substream_Info->first; ++Substream_Type_Item)
             if (Substream_Type_Item->second==Type_Ac4_Substream)
                 AudioSubstream_Pos++;
         string S=Ztring(__T("Substream")+Ztring::ToZtring(AudioSubstream_Pos)).To_UTF8();
@@ -1613,7 +1709,7 @@ void File_Ac4::Streams_Fill()
                         //    de_max_gain=D.Config.de_max_gain;
                         //    de_channel_config=D.Config.de_channel_config;
                         //}
-                        Fill_Dup(Stream_Audio, 0, (S + " ChannelLayout").c_str(), AC4_nonstd_bed_channel_assignment_mask_ChannelLayout(Ac4_ch_mode_2_nonstd(GroupInfo.ch_mode, GroupInfo.b_4_back_channels_present, GroupInfo.b_centre_present, GroupInfo.top_channels_present)));
+                        Fill_Dup(Stream_Audio, 0, (S + " ChannelLayout").c_str(), AC4_nonstd_bed_channel_assignment_mask_ChannelLayout(Ac4_ch_mode_2_nonstd(GroupInfo.ch_mode, GroupInfo.b_4_back_channels_present, GroupInfo.b_centre_present, GroupInfo.top_channels_present), Groups.size()));
                     }
                     else if (GroupInfo.b_ajoc || GroupInfo.n_objects_code!=(int8u)-1)
                     {
@@ -1632,7 +1728,7 @@ void File_Ac4::Streams_Fill()
                         }
                         if (GroupInfo.nonstd_bed_channel_assignment_mask!=(int32u)-1)
                         {
-                            Ztring BedChannelConfiguration=AC4_nonstd_bed_channel_assignment_mask_ChannelLayout(GroupInfo.nonstd_bed_channel_assignment_mask);
+                            Ztring BedChannelConfiguration=AC4_nonstd_bed_channel_assignment_mask_ChannelLayout(GroupInfo.nonstd_bed_channel_assignment_mask, Groups.size());
                             int8u num_channels_in_bed=AC4_nonstd_bed_channel_assignment_mask_2_num_channels_in_bed(GroupInfo.nonstd_bed_channel_assignment_mask);
                             if (!GroupInfo.b_ajoc && n_objects>num_channels_in_bed)
                                 Fill_Dup(Stream_Audio, 0, (S+" NumberOfDynamicObjects").c_str(), Ztring::ToZtring(n_objects-num_channels_in_bed));
@@ -1724,13 +1820,13 @@ void File_Ac4::Read_Buffer_Unsynched()
 bool File_Ac4::Synchronize()
 {
     //Synchronizing
-    size_t Buffer_Offset_Current;
+    size_t Buffer_Offset_Current{};
     while (Buffer_Offset<Buffer_Size)
     {
         Buffer_Offset_Current=Buffer_Offset;
         Synched=true; //For using Synched_Test()
         int8s i=0;
-        const int8s count=4;
+        const int8s count=(Frame_Count_Valid && Frame_Count_Valid<4)?Frame_Count_Valid:4;
         for (; i<count; i++) //4 frames in a row tested
         {
             if (!Synched_Test())
@@ -1770,7 +1866,7 @@ void File_Ac4::Synched_Init()
     Accept();
     
     if (!Frame_Count_Valid)
-        Frame_Count_Valid=Config->ParseSpeed>=0.3?128:2;
+        Frame_Count_Valid=Config->ParseSpeed>=0.3?128:(IsSub?1:2);
 
     //FrameInfo
     PTS_End=0;
@@ -2074,7 +2170,7 @@ void File_Ac4::ac4_toc()
     {
         //We parse only Iframes, but also the frames associated to this I-frame
         if (!AudioSubstreams.empty())
-            for (map<int8u, audio_substream>::iterator Substream_Info=AudioSubstreams.begin(); Substream_Info!=AudioSubstreams.end(); Substream_Info++)
+            for (map<int8u, audio_substream>::iterator Substream_Info=AudioSubstreams.begin(); Substream_Info!=AudioSubstreams.end(); ++Substream_Info)
                 if (Substream_Info->second.Buffer_Index)
                     NoSkip=true;
     }
@@ -3703,7 +3799,7 @@ void File_Ac4::metadata(audio_substream& AudioSubstream, size_t Substream_Index)
             Get_SB (b_discard_unknown_payload,                  "b_discard_unknown_payload");
             if (!b_discard_unknown_payload)
             {
-                bool b_payload_frame_aligned;
+                bool b_payload_frame_aligned{};
                 if (!b_smpoffst)
                 {
                     TEST_SB_GET(b_payload_frame_aligned,        "b_payload_frame_aligned");
@@ -4059,15 +4155,21 @@ void File_Ac4::custom_dmx_data(dmx& D, int8u pres_ch_mode, int8u pres_ch_mode_co
             Get_S1(2, n_cdmx_configs,                           "n_cdmx_configs_minus1");
             n_cdmx_configs++;
 
+            Presentations.back().Dmx.Cdmxs.reserve(n_cdmx_configs);
             for (int8u Pos=0; Pos<n_cdmx_configs; Pos++)
             {
+                Element_Begin1("cdmx_config");
                 int8u out_ch_config;
                 if (bs_ch_config==2 || bs_ch_config == 5)
-                    Get_S1 (1, out_ch_config,                   "out_ch_config[dc]");
+                    Get_S1 (1, out_ch_config,                   "out_ch_config");
                 else
-                    Get_S1 (3, out_ch_config,                   "out_ch_config[dc]");
+                    Get_S1 (3, out_ch_config,                   "out_ch_config");
+                Param_Info1C(out_ch_config<out_ch_config_Size, out_ch_config_Values[out_ch_config]);
 
+                Presentations.back().Dmx.Cdmxs.resize(Presentations.back().Dmx.Cdmxs.size()+1);
+                Presentations.back().Dmx.Cdmxs.back().out_ch_config=out_ch_config;
                 cdmx_parameters(bs_ch_config, out_ch_config);
+                Element_End0();
             }
         TEST_SB_END();
     }
@@ -4166,9 +4268,9 @@ void File_Ac4::tool_scr_to_c_l()
 {
     Element_Begin1("tool_scr_to_c_l");
         TESTELSE_SB_SKIP(                                       "b_put_screen_to_c");
-            Skip_S1(3,                                          "gain_f1_code");
+            Get_Gain(3, gain::f1_code,                          "gain_f1_code");
         TESTELSE_SB_ELSE(                                       "b_put_screen_to_c");
-            Skip_S1(3,                                          "gain_f2_code");
+            Get_Gain(3, gain::f2_code,                          "gain_f2_code");
         TESTELSE_SB_END();
     Element_End0();
 }
@@ -4177,7 +4279,7 @@ void File_Ac4::tool_scr_to_c_l()
 void File_Ac4::tool_b4_to_b2()
 {
     Element_Begin1("tool_b4_to_b2");
-    Skip_S1(3,                                                  "gain_b_code");
+    Get_Gain(3, gain::b_code,                                   "gain_b_code");
     Element_End0();
 }
 
@@ -4185,7 +4287,7 @@ void File_Ac4::tool_b4_to_b2()
 void File_Ac4::tool_t4_to_t2()
 {
     Element_Begin1("tool_t4_to_t2");
-    Skip_S1(3,                                                  "gain_t1_code");
+    Get_Gain(3, gain::t1_code,                                  "gain_t1_code");
     Element_End0();
 }
 
@@ -4194,24 +4296,26 @@ void File_Ac4::tool_t4_to_f_s_b()
 {
     Element_Begin1("tool_t4_to_f_s_b");
     TESTELSE_SB_SKIP(                                           "b_top_front_to_front");
-        Skip_S1(3,                                              "gain_t2a_code");
+        Get_Gain(3, gain::t2a_code,                             "gain_t2a_code");
+        Get_Gain(0, gain::t2b_code,                             nullptr);
     TESTELSE_SB_ELSE(                                           "b_top_front_to_front");
         TESTELSE_SB_SKIP(                                       "b_top_front_to_side");
-        Skip_S1(3,                                              "gain_t2b_code");
+            Get_Gain(3, gain::t2b_code,                         "gain_t2b_code");
         TESTELSE_SB_ELSE(                                       "b_top_front_to_side");
-        Skip_S1(3,                                              "gain_t2c_code");
+            Get_Gain(0, gain::t2b_code,                         nullptr);
+            Get_Gain(3, gain::t2c_code,                         "gain_t2c_code");
         TESTELSE_SB_END();
     TESTELSE_SB_END();
 
-
-
     TESTELSE_SB_SKIP(                                           "b_top_back_to_front");
-        Skip_S1(3,                                              "gain_t2d_code");
+        Get_Gain(3, gain::t2d_code,                              "gain_t2d_code");
+        Get_Gain(0, gain::t2e_code,                              nullptr);
     TESTELSE_SB_ELSE(                                           "b_top_back_to_front");
         TESTELSE_SB_SKIP(                                       "b_top_back_to_side");
-        Skip_S1(3,                                              "gain_t2e_code");
+           Get_Gain(3, gain::t2e_code,                           "gain_t2e_code");
         TESTELSE_SB_ELSE(                                       "b_top_back_to_side");
-        Skip_S1(3,                                              "gain_t2f_code");
+            Get_Gain(0, gain::t2e_code,                          nullptr);
+            Get_Gain(3, gain::t2f_code,                          "gain_t2f_code");
         TESTELSE_SB_END();
     TESTELSE_SB_END();
     Element_End0();
@@ -4222,15 +4326,17 @@ void File_Ac4::tool_t4_to_f_s()
 {
     Element_Begin1("tool_t4_to_f_s");
     TESTELSE_SB_SKIP(                                           "b_top_front_to_front");
-        Skip_S1(3,                                              "gain_t2a_code");
+        Get_Gain(3, gain::t2a_code,                             "gain_t2a_code");
+        Get_Gain(0, gain::t2b_code,                             nullptr);
     TESTELSE_SB_ELSE(                                           "b_top_front_to_front");
-        Skip_S1(3,                                              "gain_t2b_code");
+        Get_Gain(3, gain::t2b_code,                             "gain_t2b_code");
     TESTELSE_SB_END();
 
     TESTELSE_SB_SKIP(                                           "b_top_back_to_front");
-        Skip_S1(3,                                              "gain_t2d_code");
+        Get_Gain(3, gain::t2d_code,                             "gain_t2d_code");
+        Get_Gain(0, gain::t2e_code,                             nullptr);
     TESTELSE_SB_ELSE(                                           "b_top_back_to_front");
-        Skip_S1(3,                                              "gain_t2e_code");
+        Get_Gain(3, gain::t2e_code,                             "gain_t2e_code");
     TESTELSE_SB_END();
     Element_End0();
 }
@@ -4240,12 +4346,14 @@ void File_Ac4::tool_t2_to_f_s_b()
 {
     Element_Begin1("tool_t2_to_f_s_b");
     TESTELSE_SB_SKIP(                                           "b_top_to_front");
-        Skip_S1(3,                                              "gain_t2a_code");
+        Get_Gain(3, gain::t2a_code,                             "gain_t2a_code");
+        Get_Gain(0, gain::t2b_code,                             nullptr);
     TESTELSE_SB_ELSE(                                           "b_top_to_front");
         TESTELSE_SB_SKIP(                                       "b_top_to_side");
-            Skip_S1(3,                                          "gain_t2b_code");
+            Get_Gain(3, gain::t2b_code,                         "gain_t2b_code");
         TESTELSE_SB_ELSE(                                       "b_top_to_side");
-            Skip_S1(3,                                          "gain_t2c_code");
+            Get_Gain(0, gain::t2b_code,                         nullptr);
+            Get_Gain(3, gain::t2c_code,                         "gain_t2c_code");
         TESTELSE_SB_END();
     TESTELSE_SB_END();
     Element_End0();
@@ -4256,9 +4364,10 @@ void File_Ac4::tool_t2_to_f_s()
 {
     Element_Begin1("tool_t2_to_f_s");
     TESTELSE_SB_SKIP(                                           "b_top_to_front");
-        Skip_S1(3,                                              "gain_t2a_code");
+        Get_Gain(3, gain::t2a_code,                             "gain_t2a_code");
+        Get_Gain(0, gain::t2b_code,                             nullptr);
     TESTELSE_SB_ELSE(                                           "b_top_to_front");
-        Skip_S1(3,                                              "gain_t2b_code");
+        Get_Gain(3, gain::t2b_code,                             "gain_t2b_code");
     TESTELSE_SB_END();
     Element_End0();
 }
@@ -5256,6 +5365,19 @@ int16u File_Ac4::Huffman_Decode(const ac4_huffman& Table, const char* Name)
     Element_End0();
 
     return index+64;
+}
+
+void File_Ac4::Get_Gain(int8u Bits, gain Type, const char* Name)
+{
+    dmx::cdmx::gain Gain;
+    Gain.Type=Type;
+    if (Bits)
+    {
+        Get_S1(Bits, Gain.Value,                                Name); Param_Info3(Gain.Type==gain::f1_code?gain_f1_Values(Gain.Value):gain_xx_Values(Gain.Value), " dB", 1);
+    }
+    else
+        Gain.Value=7;
+    Presentations.back().Dmx.Cdmxs.back().Gains.push_back(Gain);
 }
 
 } //NameSpace

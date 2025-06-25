@@ -108,7 +108,7 @@ static const extra_string Xml_Extra_String[] =
 {
     { Xml_Extra_String_channel,         " channel"},
     { Xml_Extra_String_dB,              " dB" },
-    { Xml_Extra_String_micro,           " \xC2xB5s"}, //0xC2 0xB5 = micro sign
+    { Xml_Extra_String_micro,           " \xC2\xB5s"}, //0xC2 0xB5 = micro sign
     { NULL, NULL},
 };
 
@@ -126,6 +126,7 @@ static const char* Xml_Extra_N_NIY[] =
     "region_vertical_address",
     "region_width",
     "subtitle_stream_id",
+    NULL,
 };
 
 static const char* Xml_Extra_N_NT[] =

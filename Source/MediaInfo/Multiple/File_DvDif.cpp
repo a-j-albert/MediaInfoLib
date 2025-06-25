@@ -230,13 +230,12 @@ File_DvDif::File_DvDif()
         StreamIDs_Width[0]=4;
     #endif //MEDIAINFO_EVENTS
     #if MEDIAINFO_DEMUX
-        Demux_Level=2; //Container
+        Demux_Level=3; //Container and Stream
     #endif //MEDIAINFO_DEMUX
     MustSynchronize=true;
-    Buffer_TotalBytes_FirstSynched_Max=64*1024;
 
     //In
-    Frame_Count_Valid=2;
+    Frame_Count_Valid=IsSub?1:2;
     AuxToAnalyze=0x00; //No Aux to analyze
     IgnoreAudio=false;
 
@@ -273,8 +272,16 @@ File_DvDif::File_DvDif()
     Speed_Contains_NULL=0;
     Speed_FrameCount_Arb_Incoherency=0;
     Speed_FrameCount_Stts_Fluctuation=0;
+    Speed_FrameCount_system[0]=0;
+    Speed_FrameCount_system[1]=0;
+    FSC_WasSet_Sum=0;
+    FSC_WasNotSet_Sum=0;
+    AbstBf_Current=(0x7FFFFF)<<1;
+    AbstBf_Previous=(0x7FFFFF)<<1;
+    AbstBf_Previous_MaxAbst=0xFFFFFF;
     SMP=(int8u)-1;
     QU=(int8u)-1;
+    REC_IsValid=false;
     Speed_TimeCode_IsValid=false;
     Speed_Arb_IsValid=false;
     Mpeg4_stts=NULL;
@@ -389,6 +396,7 @@ void File_DvDif::Streams_Fill()
                         case 7 : Fill(Stream_Video, 0, Video_DisplayAspectRatio, 4.0/3.0, 3, true); break;
                         default: ; //No indication of aspect ratio?
                      }
+                     break;
             default: ;
         }
     }
@@ -504,10 +512,13 @@ void File_DvDif::Streams_Fill()
         Fill(Stream_Video, 0, Video_BitRate_Mode, "CBR");
 
     //Delay
-    TimeCode_FirstFrame.FramesPerSecond=(system?25:30);
+    TimeCode_FirstFrame.SetFramesMax(system?24:29);
     if (FrameRate_Multiplicator>=2)
-        TimeCode_FirstFrame.MustUseSecondField=true;
-    if (TimeCode_FirstFrame.IsValid())
+    {
+        TimeCode_FirstFrame.SetFrames(TimeCode_FirstFrame.GetFrames()*2);
+        TimeCode_FirstFrame.SetFramesMax(TimeCode_FirstFrame.GetFramesMax()*2+1);
+    }
+    if (TimeCode_FirstFrame.IsSet())
     {
         string TimeCode_FirstFrame_String=TimeCode_FirstFrame.ToString();
         int64u TimeCode_FirstFrame_ms=TimeCode_FirstFrame.ToMilliseconds();
@@ -568,7 +579,7 @@ void File_DvDif::Streams_Finish()
     }
 
     #ifdef MEDIAINFO_DVDIF_ANALYZE_YES
-        if (Config->File_DvDif_Analysis_Get())
+        if (Config->File_DvDif_Analysis_Get() && !Config->File_FrameIsAlwaysComplete_Get())
         {
             //Errors stats
             Status[IsFinished]=true; //We need to fill it before the call to Errors_Stats_Update
@@ -634,7 +645,14 @@ bool File_DvDif::Synchronize()
         return false;
 
     if (!Status[IsAccepted])
+    {
         Accept();
+
+        #if MEDIAINFO_DEMUX
+            if (Config->Demux_Unpacketize_Get())
+                Demux_UnpacketizeContainer=true;
+        #endif //MEDIAINFO_DEMUX
+    }
 
     return true;
 }
@@ -800,28 +818,43 @@ bool File_DvDif::Demux_UnpacketizeContainer_Test()
      && (CC3(Buffer+Buffer_Offset+6*80)&0xE0F0FF)==0x600000   //Audio 0
      && (CC3(Buffer+Buffer_Offset+7*80)&0xE0F0FF)==0x800000)  //Video 0
     {
-        if (Demux_Offset==0)
+        if (FrameIsAlwaysComplete)
         {
-            Demux_Offset=Buffer_Offset+1;
+            Demux_Offset=Buffer_Size;
+        }
+        else
+        {
+            if (Demux_Offset==0)
+            {
+                Demux_Offset=Buffer_Offset+1;
+            }
+
+            while (Demux_Offset+8*80<=Buffer_Size //8 blocks
+                && !((Buffer[Demux_Offset]&0xE0)==0x00   //Speed up the parsing
+                  && (CC3(Buffer+Demux_Offset+0*80)&0xE0FCFF)==0x000400   //Header 0 (with FSC==false and FSP==true)
+                  && (CC3(Buffer+Demux_Offset+1*80)&0xE0F0FF)==0x200000   //Subcode 0
+                  && (CC3(Buffer+Demux_Offset+2*80)&0xE0F0FF)==0x200001   //Subcode 1
+                  && (CC3(Buffer+Demux_Offset+3*80)&0xE0F0FF)==0x400000   //VAUX 0
+                  && (CC3(Buffer+Demux_Offset+4*80)&0xE0F0FF)==0x400001   //VAUX 1
+                  && (CC3(Buffer+Demux_Offset+5*80)&0xE0F0FF)==0x400002   //VAUX 2
+                  && (CC3(Buffer+Demux_Offset+6*80)&0xE0F0FF)==0x600000   //Audio 0
+                  && (CC3(Buffer+Demux_Offset+7*80)&0xE0F0FF)==0x800000)) //Video 0
+                    Demux_Offset++;
+
+            if (Demux_Offset+8*80>Buffer_Size && File_Offset+Buffer_Size!=File_Size)
+                return false; //No complete frame
+            if (Demux_Offset+8*80>Buffer_Size && File_Offset+Buffer_Size==File_Size)
+                Demux_Offset=(size_t)(File_Size-File_Offset); //Using the complete buffer (no next sync)
         }
 
-        while (Demux_Offset+8*80<=Buffer_Size //8 blocks
-            && !((Buffer[Demux_Offset]&0xE0)==0x00   //Speed up the parsing
-              && (CC3(Buffer+Demux_Offset+0*80)&0xE0FCFF)==0x000400   //Header 0 (with FSC==false and FSP==true)
-              && (CC3(Buffer+Demux_Offset+1*80)&0xE0F0FF)==0x200000   //Subcode 0
-              && (CC3(Buffer+Demux_Offset+2*80)&0xE0F0FF)==0x200001   //Subcode 1
-              && (CC3(Buffer+Demux_Offset+3*80)&0xE0F0FF)==0x400000   //VAUX 0
-              && (CC3(Buffer+Demux_Offset+4*80)&0xE0F0FF)==0x400001   //VAUX 1
-              && (CC3(Buffer+Demux_Offset+5*80)&0xE0F0FF)==0x400002   //VAUX 2
-              && (CC3(Buffer+Demux_Offset+6*80)&0xE0F0FF)==0x600000   //Audio 0
-              && (CC3(Buffer+Demux_Offset+7*80)&0xE0F0FF)==0x800000)) //Video 0
-                Demux_Offset++;
-
-        if (Demux_Offset+8*80>Buffer_Size && File_Offset+Buffer_Size!=File_Size)
-            return false; //No complete frame
-        if (Demux_Offset+8*80>Buffer_Size && File_Offset+Buffer_Size==File_Size)
-            Demux_Offset=(size_t)(File_Size-File_Offset); //Using the complete buffer (no next sync)
-
+        Element_Code=-1;
+    #ifdef MEDIAINFO_DVDIF_ANALYZE_YES
+        FrameInfo.DTS=FrameInfo.PTS=Speed_FrameCount_system[0]*100100000/3+Speed_FrameCount_system[1]*40000000;
+        Speed_FrameCount_system[system]++;
+        int64u NextPTS=Speed_FrameCount_system[0]*100100000/3+Speed_FrameCount_system[1]*40000000;
+        Speed_FrameCount_system[system]--;
+    #endif //MEDIAINFO_DVDIF_ANALYZE_YES
+        FrameInfo.DUR=(int64u)-1; // Unknown, system flag is not yet checked
         Demux_UnpacketizeContainer_Demux();
     }
 
@@ -903,7 +936,7 @@ size_t File_DvDif::Read_Buffer_Seek (size_t Method, int64u Value, int64u /*ID*/)
                         //We transform TimeStamp to a frame number
                         Value=float64_int64s(((float64)Value)*(DSF?25.000:(30.000*1000/1001))/1000000000);
                     }
-                    //No break;
+                    [[fallthrough]];
         case 3  :   //FrameNumber
                     if (!FSP_WasNotSet)
                     {
@@ -1191,7 +1224,7 @@ void File_DvDif::Subcode_Ssyb(int8u syb_num)
         Skip_S1(3,                                              "APT - track application ID");
     else
         Skip_S1(3,                                              "Res - Reserved");
-    Skip_S1(8,                                                  "Arb - Arbitrary bits");
+    Skip_S1(8,                                                  "ABST/BF - Absolute track number / Blank flag");
     Skip_S1(4,                                                  "Syb - SSYSB number");
     BS_End();
     //FFh
@@ -1347,20 +1380,8 @@ void File_DvDif::timecode()
 {
     Element_Name("timecode");
 
-    if (Buffer[Buffer_Offset+(size_t)Element_Offset  ]==0x00
-     && Buffer[Buffer_Offset+(size_t)Element_Offset+1]==0x00
-     && Buffer[Buffer_Offset+(size_t)Element_Offset+2]==0x00
-     && Buffer[Buffer_Offset+(size_t)Element_Offset+3]==0x00
-    )
-    {
-        Skip_XX(4,                                              "All zero");
-        return;
-    }
-
     //Parsing
     int8u Frames_Units, Frames_Tens, Seconds_Units, Seconds_Tens, Minutes_Units, Minutes_Tens, Hours_Units, Hours_Tens;
-    int64u MilliSeconds=0;
-    int8u  Frames=0;
     bool   DropFrame=false;
     bool   FieldIndication;
     BS_Begin();
@@ -1372,9 +1393,7 @@ void File_DvDif::timecode()
     else        //525/60
         Get_SB (DropFrame,                                      "DP - Drop frame"); //525/60
     Get_S1 (2, Frames_Tens,                                     "Frames (Tens)");
-    Frames+=Frames_Tens*10;
     Get_S1 (4, Frames_Units,                                    "Frames (Units)");
-    Frames+=Frames_Units;
 
     if (!DSF_IsValid)
         Get_SB(FieldIndication,                                 "BGF0 or PC");
@@ -1383,9 +1402,7 @@ void File_DvDif::timecode()
     else        //525/60
         Get_SB(FieldIndication,                                 "PC - Biphase mark polarity correction"); //0=even; 1=odd
     Get_S1 (3, Seconds_Tens,                                    "Seconds (Tens)");
-    MilliSeconds+=Seconds_Tens*10*1000;
     Get_S1 (4, Seconds_Units,                                   "Seconds (Units)");
-    MilliSeconds+=Seconds_Units*1000;
 
     if (!DSF_IsValid)
         Skip_SB(                                                "BGF2 or BGF0");
@@ -1394,9 +1411,7 @@ void File_DvDif::timecode()
     else        //525/60
         Skip_SB(                                                "BGF0 - Binary group flag");
     Get_S1 (3, Minutes_Tens,                                    "Minutes (Tens)");
-    MilliSeconds+=Minutes_Tens*10*60*1000;
     Get_S1 (4, Minutes_Units,                                   "Minutes (Units)");
-    MilliSeconds+=Minutes_Units*60*1000;
 
     if (!DSF_IsValid)
         Skip_SB(                                                "PC or BGF1");
@@ -1406,23 +1421,28 @@ void File_DvDif::timecode()
         Skip_SB(                                                "BGF1 - Binary group flag");
     Skip_SB(                                                    "BGF2 - Binary group flag");
     Get_S1 (2, Hours_Tens,                                      "Hours (Tens)");
-    MilliSeconds+=Hours_Tens*10*60*60*1000;
     Get_S1 (4, Hours_Units,                                     "Hours (Units)");
-    MilliSeconds+=Hours_Units*60*60*1000;
-    Element_Info1(Ztring().Duration_From_Milliseconds(MilliSeconds+((DSF_IsValid && Frames!=45)?((int64u)(Frames/(DSF?25.000:29.970)*1000)):0)));
     BS_End();
 
-    if (!TimeCode_FirstFrame.HasValue() && MilliSeconds!=167185000) //if all bits are set to 1, this is not a valid timestamp
-    {
-        TimeCode_FirstFrame=TimeCode(Hours_Tens  *10+Hours_Units,
-                                     Minutes_Tens*10+Minutes_Units,
-                                     Seconds_Tens*10+Seconds_Units,
-                                     (DSF_IsValid && Frames!=45)?(Frames_Tens*10+Frames_Units):0, //if all bits are set to 1, this is not a valid frame number
-                                     0, //Unknown
-                                     DropFrame,
-                                     false, //Unknown
-                                     false);
-    }
+    FILLING_BEGIN()
+        auto HH=Hours_Tens*10+Hours_Units;
+        auto MM=Minutes_Tens*10+Minutes_Units;
+        auto SS=Seconds_Tens*10+Seconds_Units;
+        if (HH+MM+SS!=215) //if all bits are set to 1, this is not a valid timestamp
+        {
+            auto FF=Frames_Tens*10+Frames_Units;
+            auto TC=TimeCode(HH,
+                             MM,
+                             SS,
+                             (DSF_IsValid && FF!=45)?FF:0, //if all bits are set to 1, this is not a valid frame number
+                             -1, //Unknown
+                             TimeCode::DropFrame(DropFrame));
+            Element_Info1(TC.ToString());
+            if (!TimeCode_FirstFrame.IsSet())
+                TimeCode_FirstFrame=TC;
+        }
+
+    FILLING_END()
 }
 
 //---------------------------------------------------------------------------
@@ -1885,4 +1905,3 @@ void File_DvDif::rectime(bool FromVideo)
 } //NameSpace
 
 #endif //MEDIAINFO_DV_YES
-

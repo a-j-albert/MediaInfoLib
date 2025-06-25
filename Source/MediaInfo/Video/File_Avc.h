@@ -12,7 +12,10 @@
 //---------------------------------------------------------------------------
 #include "MediaInfo/File__Analyze.h"
 #include "MediaInfo/File__Duplicate.h"
+#include "MediaInfo/TimeCode.h"
+#include <bitset>
 #include <cmath>
+
 //---------------------------------------------------------------------------
 
 namespace MediaInfoLib
@@ -32,7 +35,6 @@ class File_Avc :
 public :
     //In
     int64u Frame_Count_Valid;
-    bool   FrameIsAlwaysComplete;
     bool   MustParse_SPS_PPS;
     bool   SizedBlocks;
 
@@ -52,7 +54,7 @@ public :
         {}
     };
     static avcintra_header AVC_Intra_Headers_Data(int32u CodecID);
-    static int32u AVC_Intra_CodecID_FromMeta(int32u Height, int32u Fields, int32u SampleDuration, int32u TimeScale, int32u SizePerFrame);
+    static int32u AVC_Intra_CodecID_FromMeta(int32u Width, int32u Height, int32u Fields, int32u SampleDuration, int32u TimeScale, int32u SizePerFrame);
 
 private :
     File_Avc(const File_Avc &File_Avc); //No copy
@@ -73,16 +75,29 @@ private :
         {
             delete[] Iso14496_10_Buffer;
             Iso14496_10_Buffer_Size = (size_t)(Element_Size + 4);
-            Iso14496_10_Buffer = new int8u[Iso14496_10_Buffer_Size];
-            Iso14496_10_Buffer[0] = 0x00;
-            Iso14496_10_Buffer[1] = 0x00;
-            Iso14496_10_Buffer[2] = 0x01;
-            Iso14496_10_Buffer[3] = c;
-            std::memcpy(Iso14496_10_Buffer + 4, Buffer, (size_t)Element_Size);
+            if (Iso14496_10_Buffer_Size > 3) {
+                Iso14496_10_Buffer = new int8u[Iso14496_10_Buffer_Size];
+                Iso14496_10_Buffer[0] = 0x00;
+                Iso14496_10_Buffer[1] = 0x00;
+                Iso14496_10_Buffer[2] = 0x01;
+                Iso14496_10_Buffer[3] = c;
+                std::memcpy(Iso14496_10_Buffer + 4, Buffer, (size_t)Element_Size);
+            }
         }
 #endif //MEDIAINFO_DEMUX
     };
 
+    enum vui_flag
+    {
+        video_signal_type_present_flag,
+        video_full_range_flag,
+        colour_description_present_flag,
+        timing_info_present_flag,
+        fixed_frame_rate_flag,
+        pic_struct_present_flag,
+        vui_flags_Max
+    };
+    typedef std::bitset<vui_flags_Max> vui_flags;
     struct seq_parameter_set_struct : public iso14496_base
     {
         struct vui_parameters_struct
@@ -166,41 +181,31 @@ private :
             xxl*    VCL;
             int32u  num_units_in_tick;
             int32u  time_scale;
+            int32u  chroma_sample_loc_type_top_field;
+            int32u  chroma_sample_loc_type_bottom_field;
             int16u  sar_width;
             int16u  sar_height;
-            int8u   aspect_ratio_idc;
             int8u   video_format;
-            int8u   video_full_range_flag;
             int8u   colour_primaries;
             int8u   transfer_characteristics;
             int8u   matrix_coefficients;
-            bool    aspect_ratio_info_present_flag;
-            bool    video_signal_type_present_flag;
-            bool    colour_description_present_flag;
-            bool    timing_info_present_flag;
-            bool    fixed_frame_rate_flag;
-            bool    pic_struct_present_flag;
+            vui_flags flags;
 
-            vui_parameters_struct(xxl* NAL_, xxl* VCL_, int32u num_units_in_tick_, int32u time_scale_, int16u  sar_width_, int16u  sar_height_, int8u aspect_ratio_idc_, int8u video_format_, int8u video_full_range_flag_, int8u colour_primaries_, int8u transfer_characteristics_, int8u matrix_coefficients_, bool aspect_ratio_info_present_flag_, bool video_signal_type_present_flag_, bool colour_description_present_flag_, bool timing_info_present_flag_, bool fixed_frame_rate_flag_, bool pic_struct_present_flag_)
+            vui_parameters_struct(xxl* NAL_, xxl* VCL_, int32u num_units_in_tick_, int32u time_scale_, int32u chroma_sample_loc_type_top_field_, int32u chroma_sample_loc_type_bottom_field_, int16u  sar_width_, int16u  sar_height_, int8u video_format_, int8u colour_primaries_, int8u transfer_characteristics_, int8u matrix_coefficients_, vui_flags flags_)
                 :
                 NAL(NAL_),
                 VCL(VCL_),
                 num_units_in_tick(num_units_in_tick_),
                 time_scale(time_scale_),
+                chroma_sample_loc_type_top_field(chroma_sample_loc_type_top_field_),
+                chroma_sample_loc_type_bottom_field(chroma_sample_loc_type_bottom_field_),
                 sar_width(sar_width_),
                 sar_height(sar_height_),
-                aspect_ratio_idc(aspect_ratio_idc_),
                 video_format(video_format_),
-                video_full_range_flag(video_full_range_flag_),
                 colour_primaries(colour_primaries_),
                 transfer_characteristics(transfer_characteristics_),
                 matrix_coefficients(matrix_coefficients_),
-                aspect_ratio_info_present_flag(aspect_ratio_info_present_flag_),
-                video_signal_type_present_flag(video_signal_type_present_flag_),
-                colour_description_present_flag(colour_description_present_flag_),
-                timing_info_present_flag(timing_info_present_flag_),
-                fixed_frame_rate_flag(fixed_frame_rate_flag_),
-                pic_struct_present_flag(pic_struct_present_flag_)
+                flags(flags_)
             {
             }
 
@@ -235,7 +240,7 @@ private :
         int8u   log2_max_pic_order_cnt_lsb_minus4;
         int8u   max_num_ref_frames;
         int8u   pic_struct_FirstDetected; //For stats only
-        bool    constraint_set3_flag;
+        int8u   constraint_set_flags;
         bool    separate_colour_plane_flag;
         bool    delta_pic_order_always_zero_flag;
         bool    frame_mbs_only_flag;
@@ -248,7 +253,7 @@ private :
         int8u   ChromaArrayType() {return separate_colour_plane_flag?0:chroma_format_idc;}
 
         //Constructor/Destructor
-        seq_parameter_set_struct(vui_parameters_struct* vui_parameters_, int32u pic_width_in_mbs_minus1_, int32u pic_height_in_map_units_minus1_, int32u frame_crop_left_offset_, int32u frame_crop_right_offset_, int32u frame_crop_top_offset_, int32u frame_crop_bottom_offset_, int8u chroma_format_idc_, int8u profile_idc_, int8u level_idc_, int8u bit_depth_luma_minus8_, int8u bit_depth_chroma_minus8_, int8u log2_max_frame_num_minus4_, int8u pic_order_cnt_type_, int8u log2_max_pic_order_cnt_lsb_minus4_, int8u max_num_ref_frames_, bool constraint_set3_flag_, bool separate_colour_plane_flag_, bool delta_pic_order_always_zero_flag_, bool frame_mbs_only_flag_, bool mb_adaptive_frame_field_flag_)
+        seq_parameter_set_struct(vui_parameters_struct* vui_parameters_, int32u pic_width_in_mbs_minus1_, int32u pic_height_in_map_units_minus1_, int32u frame_crop_left_offset_, int32u frame_crop_right_offset_, int32u frame_crop_top_offset_, int32u frame_crop_bottom_offset_, int8u chroma_format_idc_, int8u profile_idc_, int8u level_idc_, int8u bit_depth_luma_minus8_, int8u bit_depth_chroma_minus8_, int8u log2_max_frame_num_minus4_, int8u pic_order_cnt_type_, int8u log2_max_pic_order_cnt_lsb_minus4_, int8u max_num_ref_frames_, int8u constraint_set_flags_, bool separate_colour_plane_flag_, bool delta_pic_order_always_zero_flag_, bool frame_mbs_only_flag_, bool mb_adaptive_frame_field_flag_)
             :
             vui_parameters(vui_parameters_),
             pic_width_in_mbs_minus1(pic_width_in_mbs_minus1_),
@@ -268,7 +273,7 @@ private :
             log2_max_pic_order_cnt_lsb_minus4(log2_max_pic_order_cnt_lsb_minus4_),
             max_num_ref_frames(max_num_ref_frames_),
             pic_struct_FirstDetected((int8u)-1), //For stats only, init
-            constraint_set3_flag(constraint_set3_flag_),
+            constraint_set_flags(constraint_set_flags_),
             separate_colour_plane_flag(separate_colour_plane_flag_),
             delta_pic_order_always_zero_flag(delta_pic_order_always_zero_flag_),
             frame_mbs_only_flag(frame_mbs_only_flag_),
@@ -423,8 +428,8 @@ private :
     hdr                                 HDR;
 
 
-    int16u  maximum_content_light_level;
-    int16u  maximum_frame_average_light_level;
+    Ztring  maximum_content_light_level;
+    Ztring  maximum_frame_average_light_level;
 
     void consumer_camera_1();
     void consumer_camera_2();
@@ -450,7 +455,7 @@ private :
     void nal_unit_header_svc_extension();
     void nal_unit_header_mvc_extension();
     void ref_pic_list_modification(int32u slice_type, bool mvc);
-    void pred_weight_table(int32u num_ref_idx_l0_active_minus1, int32u num_ref_idx_l1_active_minus1, int8u ChromaArrayType);
+    void pred_weight_table(int32u  slice_type, int32u num_ref_idx_l0_active_minus1, int32u num_ref_idx_l1_active_minus1, int8u ChromaArrayType);
     void dec_ref_pic_marking(vector<int8u> &memory_management_control_operations);
 
     //Packets - Specific
@@ -513,6 +518,9 @@ private :
         bool                            GA94_03_IsPresent;
     #endif //defined(MEDIAINFO_DTVCCTRANSPORT_YES)
 
+    //Misc
+    TimeCode                            TC_Current;
+
     //Replacement of File__Analyze buffer
     const int8u*                        Buffer_ToSave;
     size_t                              Buffer_Size_ToSave;
@@ -541,6 +549,8 @@ private :
     size_t                              Interlaced_Bottom;
     size_t                              Structure_Field;
     size_t                              Structure_Frame;
+    size_t                              Slices_CountInThisFrame;
+    size_t                              MaxSlicesCount;
 
     //Temp
     Ztring                              Encoded_Library;
@@ -552,12 +562,15 @@ private :
     Ztring                              MuxingMode;
     string                              PictureTypes_PreviousFrames;
     int64u                              tc;
+    int64s                              pic_order_cnt_Delta;
+    int64s                              pic_order_cnt_Displayed;
     int32u                              Firstpic_order_cnt_lsbInBlock;
     int8u                               nal_ref_idc;
     int8u                               FrameRate_Divider;
     int8u                               preferred_transfer_characteristics;
     bool                                FirstPFrameInGop_IsParsed;
     bool                                Config_IsRepeated;
+    std::map<size_t, int>               FrameSizes;
     #if MEDIAINFO_ADVANCED2
         std::vector<std::string>        Dump_SPS;
         std::vector<std::string>        Dump_PPS;

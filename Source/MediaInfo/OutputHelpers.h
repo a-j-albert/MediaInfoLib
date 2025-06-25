@@ -35,6 +35,7 @@ struct Node
     std::string XmlCommentOut; //If set, comment out the whole node in the xml output with the string as comment
     std::string RawContent; //If set, replace the whole node by the string
     bool Multiple;
+    bool AlreadyCommented=false;
 
     //Constructors
     Node()
@@ -83,10 +84,12 @@ struct Node
         Childs.push_back(new Node(Name, Value, Multiple));
         return Childs.back();
     }
+    #if defined(UNICODE) || defined (_UNICODE)
     Node* Add_Child(const std::string& Name, const ZenLib::Ztring& Value, bool Multiple=false)
     {
         return Add_Child(Name, Value.To_UTF8(), Multiple);
     }
+    #endif //defined(UNICODE) || defined (_UNICODE)
     Node* Add_Child(const std::string& Name, const std::string& Value, const std::string& _Atribute_Name, const char* _Atribute_Value, bool Multiple=false)
     {
         Childs.push_back(new Node(Name, Value, _Atribute_Name, _Atribute_Value, Multiple));
@@ -97,6 +100,7 @@ struct Node
         Childs.push_back(new Node(Name, Value, _Atribute_Name, _Atribute_Value, Multiple));
         return Childs.back();
     }
+    #if defined(UNICODE) || defined (_UNICODE)
     Node* Add_Child(const std::string& Name, const std::string& Value, const std::string& _Atribute_Name, const ZenLib::Ztring& _Atribute_Value, bool Multiple=false)
     {
         return Add_Child(Name, Value, _Atribute_Name, _Atribute_Value.To_UTF8(), Multiple);
@@ -105,6 +109,7 @@ struct Node
     {
         return Add_Child(Name, Value.To_UTF8(), _Atribute_Name, _Atribute_Value, Multiple);
     }
+    #endif //defined(UNICODE) || defined (_UNICODE)
     //Add_Child_IfNotEmpty functions
     Node* Add_Child_IfNotEmpty(MediaInfo_Internal &MI, stream_t StreamKind, size_t StreamPos, const char* FieldName, const std::string& Name, bool Multiple=false)
     {
@@ -146,7 +151,6 @@ struct Node
         {
             Node* Child=Add_Child(Name, std::string(), Multiple);
             return Child->Add_Child(Name2, Value.To_UTF8(), Multiple2);
-            return Child;
         }
         return NULL;
     }
@@ -227,11 +231,13 @@ struct Node
 };
 
 std::string To_XML (Node& Cur_Node, const int& Level, bool Print_Header=false, bool Indent=true);
-std::string To_JSON (Node& Cur_Node, const int& Level, bool Print_Header=false, bool Indent=true);
+std::string To_JSON (Node& Cur_Node, const int& Level, bool Print_Header=false, bool Indent=true, bool Carriage_Returns=true);
 
 bool ExternalMetadata(const ZenLib::Ztring& FileName, const ZenLib::Ztring& ExternalMetadata, const ZenLib::Ztring& ExternalMetaDataConfig, const ZenLib::ZtringList& Parents, const  ZenLib::Ztring& PlaceHolder, Node* Main, Node* MI_Info);
 
+#if defined(MEDIAINFO_EBUCORE_YES) || defined(MEDIAINFO_FIMS_YES) || defined(MEDIAINFO_MPEG7_YES)
 Ztring VideoCompressionCodeCS_Name(int32u termID, MediaInfo_Internal &MI, size_t StreamPos);
+#endif
 
 } //NameSpace
 

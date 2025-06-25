@@ -224,13 +224,12 @@ File_Vc1::File_Vc1()
         Trace_Layers_Update(8); //Stream
     #endif //MEDIAINFO_TRACE
     MustSynchronize=true;
-    Buffer_TotalBytes_FirstSynched_Max=64*1024;
     PTS_DTS_Needed=true;
     StreamSource=IsStream;
     Frame_Count_NotParsedIncluded=0;
 
     //In
-    Frame_Count_Valid=30;
+    Frame_Count_Valid=0;
     FrameIsAlwaysComplete=false;
     From_WMV3=false;
     Only_0D=false;
@@ -266,6 +265,9 @@ void File_Vc1::Streams_Accept()
     Fill(Stream_Video, 0, Video_Format, "VC-1");
     Fill(Stream_Video, 0, Video_Codec, From_WMV3?"WMV3":"VC-1"); //For compatibility with the old reaction
     Fill(Stream_Video, 0, Video_BitDepth, 8);
+
+    if (!Frame_Count_Valid)
+        Frame_Count_Valid=Config->ParseSpeed>=0.3?30:(IsSub?1:2);
 }
 
 //---------------------------------------------------------------------------

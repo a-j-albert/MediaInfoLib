@@ -60,6 +60,7 @@ protected :
 
     //Buffer - Global
     #ifdef MEDIAINFO_DVDIF_ANALYZE_YES
+    void Read_Buffer_Init();
     void Read_Buffer_Continue();
     #endif //MEDIAINFO_DVDIF_ANALYZE_YES
     void Read_Buffer_Unsynched();
@@ -167,6 +168,54 @@ protected :
     int64u Speed_Contains_NULL;                         //Per Frame - Error 4
     int64u Speed_FrameCount_Arb_Incoherency;            //Global    - Error 5
     int64u Speed_FrameCount_Stts_Fluctuation;           //Global    - Error 6
+    int64u Speed_FrameCount_system[2];                  //Global    - Total per system (NTSC or PAL)
+    struct abst_bf
+    {
+        struct value_trust
+        {
+            int32s Value;
+            int32s Trust;
+
+            value_trust()
+            {
+                Value=0;
+                Trust=0;
+            }
+
+            bool operator < (const value_trust& b) const
+            {
+                if (Trust==b.Trust)
+                    return Value<b.Value;
+                return Trust>b.Trust;
+            }
+        };
+        vector<value_trust> abst[2]; //0=standard, 1=non-standard x1.5
+        set<int32s> StoredValues;
+        size_t bf[2];
+        size_t Frames_NonStandard[2]; //0=x0.5, 1=x1.5
+
+        abst_bf()
+        {
+            Frames_NonStandard[0]=0;
+            Frames_NonStandard[1]=0;
+            reset();
+        }
+
+        void reset()
+        {
+            abst[0].clear();
+            abst[1].clear();
+            bf[0]=0;
+            bf[1]=0;
+            StoredValues.clear();
+        }
+    };
+    int16u FSC_WasSet_Sum;
+    int16u FSC_WasNotSet_Sum;
+    abst_bf AbstBf_Current_Weighted;
+    int32u AbstBf_Current;
+    int32u AbstBf_Previous;
+    int32s AbstBf_Previous_MaxAbst;
     int8u  SMP;
     int8u  QU;
     bool   QU_FSC; //Validity is with QU
@@ -174,6 +223,7 @@ protected :
     bool   REC_ST;
     bool   REC_END;
     bool   REC_IsValid;
+    std::vector<int8u> DirectionSpeed;
     struct dvdate
     {
         int8u  Days;
@@ -224,6 +274,7 @@ protected :
     dvtime Speed_TimeCode_Last;
     dvtime Speed_TimeCode_Current;
     dvtime Speed_TimeCode_Current_Theory;
+    dvtime Speed_TimeCode_Current_Theory2;
     Ztring Speed_TimeCodeZ_First;
     Ztring Speed_TimeCodeZ_Last;
     Ztring Speed_TimeCodeZ_Current;
@@ -235,6 +286,7 @@ protected :
     Ztring Speed_RecTimeZ_Last;
     Ztring Speed_RecTimeZ_Current;
     dvdate Speed_RecDate_Current;
+    dvdate Speed_RecDate_Current_Theory2;
     Ztring Speed_RecDateZ_First;
     Ztring Speed_RecDateZ_Last;
     Ztring Speed_RecDateZ_Current;
@@ -247,6 +299,7 @@ protected :
     {
         Caption_Present,
         Caption_ParityIssueAny,
+        PreviousFrameHasNoAudioSourceControl,
     };
     bitset<32> Captions_Flags;
     enum coherency
@@ -262,8 +315,18 @@ protected :
     bitset<32> Coherency_Flags;
     std::vector<std::vector<int8u> > audio_source_mode; //Per ChannelGroup and Dseq, -1 means not present
     bitset<ChannelGroup_Count*2> ChannelInfo;
-    std::vector<std::vector<size_t> > Audio_Errors; //Per ChannelGroup and Dseq
+    struct audio_errors
+    {
+        size_t Count;
+        std::set<int16u> Values;
+
+        audio_errors():
+            Count(0)
+        {}
+    };
+    std::vector<std::vector<audio_errors> > Audio_Errors; //Per ChannelGroup and Dseq
     std::vector<std::vector<size_t> > Audio_Errors_TotalPerChannel; //Per Channel and Dseq
+
     struct recZ_Single
     {
         int64u FramePos;

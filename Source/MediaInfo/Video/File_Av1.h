@@ -27,7 +27,6 @@ class File_Av1 : public File__Analyze
 public :
     //In
     int64u Frame_Count_Valid;
-    bool   FrameIsAlwaysComplete;
 
     //Constructor/Destructor
     File_Av1();
@@ -62,14 +61,15 @@ private :
     //Temp
     Ztring  MasteringDisplay_ColorPrimaries;
     Ztring  MasteringDisplay_Luminance;
-    int16u  maximum_content_light_level;
-    int16u  maximum_frame_average_light_level;
+    Ztring  maximum_content_light_level;
+    Ztring  maximum_frame_average_light_level;
     bool  sequence_header_Parsed;
     bool  SeenFrameHeader;
     string GOP;
 
     //Helpers
     std::string GOP_Detect(std::string PictureTypes);
+    void Get_leb128(int64u& Info, const char* Name);
 };
 
 } //NameSpace

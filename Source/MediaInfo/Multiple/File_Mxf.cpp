@@ -22,7 +22,10 @@
 
 //---------------------------------------------------------------------------
 #include "MediaInfo/Multiple/File_Mxf.h"
+#include "MediaInfo/Multiple/File_Mxf_Automated.h"
 #include "MediaInfo/Video/File_DolbyVisionMetadata.h"
+#include "MediaInfo/Video/File_HdrVividMetadata.h"
+#include "MediaInfo/Audio/File_DolbyAudioMetadata.h"
 #if defined(MEDIAINFO_DVDIF_YES)
     #include "MediaInfo/Multiple/File_DvDif.h"
 #endif
@@ -35,6 +38,12 @@
 #if defined(MEDIAINFO_AVC_YES)
     #include "MediaInfo/Video/File_Avc.h"
 #endif
+#if defined(MEDIAINFO_FFV1_YES)
+    #include "MediaInfo/Video/File_Ffv1.h"
+#endif
+#if defined(MEDIAINFO_HEVC_YES)
+    #include "MediaInfo/Video/File_Hevc.h"
+#endif
 #if defined(MEDIAINFO_MPEG4V_YES)
     #include "MediaInfo/Video/File_Mpeg4v.h"
 #endif
@@ -44,6 +53,9 @@
 #if defined(MEDIAINFO_PRORES_YES)
     #include "MediaInfo/Video/File_ProRes.h"
 #endif
+#if defined(MEDIAINFO_VC1_YES)
+    #include "MediaInfo/Video/File_Vc1.h"
+#endif
 #if defined(MEDIAINFO_VC3_YES)
     #include "MediaInfo/Video/File_Vc3.h"
 #endif
@@ -52,6 +64,15 @@
 #endif
 #if defined(MEDIAINFO_AC3_YES)
     #include "MediaInfo/Audio/File_Ac3.h"
+#endif
+#if defined(MEDIAINFO_ADM_YES)
+    #include "MediaInfo/Audio/File_Adm.h"
+#endif
+#if defined(MEDIAINFO_IAB_YES)
+    #include "MediaInfo/Audio/File_Iab.h"
+#endif
+#if defined(MEDIAINFO_MGA_YES)
+    #include "MediaInfo/Audio/File_Mga.h"
 #endif
 #if defined(MEDIAINFO_SMPTEST0337_YES)
     #include "MediaInfo/Audio/File_ChannelGrouping.h"
@@ -91,6 +112,9 @@
 #include "ZenLib/Format/Http/Http_Utils.h"
 #include <cfloat>
 #include <cmath>
+#if MEDIAINFO_ADVANCED
+    #include <limits>
+#endif //MEDIAINFO_ADVANCED
 #if MEDIAINFO_SEEK
     #include <algorithm>
 #endif //MEDIAINFO_SEEK
@@ -99,6 +123,10 @@ using namespace std;
 
 namespace MediaInfoLib
 {
+
+#if defined(MEDIAINFO_IAB_YES)
+    Ztring ChannelLayout_2018_Rename(const Ztring& Channels, const Ztring& Format);
+#endif
 
 //***************************************************************************
 //
@@ -127,378 +155,16 @@ namespace MediaInfoLib
 #endif // MEDIAINFO_TRACE
 
 //---------------------------------------------------------------------------
-#define UUID(PART1, PART2, PART3, PART4, LOCAL, NORM, NAME, DESCRIPTION) \
-    const int32u NAME##1=0x##PART1; \
-    const int32u NAME##2=0x##PART2; \
-    const int32u NAME##3=0x##PART3; \
-    const int32u NAME##4=0x##PART4; \
-
-namespace Elements
-{
-    //                       01 - Identification and location
-    //                         01 - Globally Unique Identifiers
-    //                           15 - Object Identifiers
-    UUID(060E2B34, 0101010C, 01011512, 00000000, 0000, "SMPTE ST 429-5", ResourceID, "Resource ID")
-
-    //                         02 - Globally Unique Locators
-    //                           01 - Uniform Resource Locators
-    UUID(060E2B34, 0101010C, 01020105, 01000000, 0000, "SMPTE ST 429-5", NamespaceURI, "Namespace URI")
-
-    //                         03 - Locally Unique Identifiers
-    //                           04 - ?
-    UUID(060E2B34, 0101010E, 0103040A, 00000000, 0000, "SMPTE ST 377-4", MCAChannelID, "MCA Channel ID")
-
-    //                           07 - ?
-    //                             01 - ?
-    UUID(060E2B34, 0101010E, 01030701, 01000000, 0000, "SMPTE ST 377-4", MCALabelDictionaryID, "MCA Label Dictionary ID")
-    UUID(060E2B34, 0101010E, 01030701, 02000000, 0000, "SMPTE ST 377-4", MCATagSymbol, "MCA Tag Symbol")
-    UUID(060E2B34, 0101010E, 01030701, 03000000, 0000, "SMPTE ST 377-4", MCATagName, "MCA Tag Name")
-    UUID(060E2B34, 0101010E, 01030701, 04000000, 0000, "SMPTE ST 377-4", GroupOfSoundfieldGroupsLinkID, "Group Of Soundfield Groups Link ID")
-    UUID(060E2B34, 0101010E, 01030701, 05000000, 0000, "SMPTE ST 377-4", MCALinkID, "MCA Link ID")
-    UUID(060E2B34, 0101010E, 01030701, 06000000, 0000, "SMPTE ST 377-4", SoundfieldGroupLinkID, "Soundfield Group Link ID")
-
-    //                         04 - Locally Unique Locators
-    //                           01 - ?
-    //                             01 - ?
-    UUID(060E2B34, 0101010E, 01040105, 00000000, 0000, "SMPTE ST 377-4", MCAPartitionKind, "MCA Partition Kind")
-    UUID(060E2B34, 0101010E, 01040106, 00000000, 0000, "SMPTE ST 377-4", MCAPartitionNumber, "MCA Partition Number")
-
-    //                         05 - Titles
-    UUID(060E2B34, 0101010E, 01051000, 00000000, 0000, "SMPTE ST 377-4", MCATitle, "MCA Title")
-    UUID(060E2B34, 0101010E, 01051100, 00000000, 0000, "SMPTE ST 377-4", MCATitleVersion, "MCA Title Version")
-    UUID(060E2B34, 0101010E, 01051200, 00000000, 0000, "SMPTE ST 377-4", MCATitleSubVersion, "MCA Title Sub-version")
-    UUID(060E2B34, 0101010E, 01051300, 00000000, 0000, "SMPTE ST 377-4", MCAEpisode, "MCA Episode")
-
-    //                       02 - Administrative
-
-    //                       03 - Interpretive
-    //                         01 - Fundamental
-    //                           01 - Countries and Languages
-    //                             01 - Country and Region Codes
-
-    //                             02 - Spoken Language Codes
-    UUID(060E2B34, 01010107, 03010102, 03010000, 0000, "", PrimarySpokenLanguage, "")
-    UUID(060E2B34, 01010107, 03010102, 03020000, 0000, "", SecondarySpokenLanguage, "")
-    UUID(060E2B34, 01010107, 03010102, 03030000, 0000, "", OriginalSpokenLanguage, "")
-    UUID(060E2B34, 01010107, 03010102, 03040000, 0000, "", SecondaryOriginalSpokenLanguage, "")
-    UUID(060E2B34, 01010107, 03010102, 03110000, 0000, "SMPTE ST 380", PrimaryExtendedSpokenLanguage, "Primary Extended Spoken Language")
-    UUID(060E2B34, 01010107, 03010102, 03120000, 0000, "SMPTE ST 380", SecondaryExtendedSpokenLanguage, "Secondary Extended Spoken Language")
-    UUID(060E2B34, 01010107, 03010102, 03130000, 0000, "SMPTE ST 380", OriginalExtendedSpokenLanguage, "Original Extended Spoken Language")
-    UUID(060E2B34, 01010107, 03010102, 03140000, 0000, "SMPTE ST 380", SecondaryOriginalExtendedSpokenLanguage, "Secondary Original Extended Spoken Language")
-    UUID(060E2B34, 0101010D, 03010102, 03150000, 0000, "SMPTE ST 377-4", RFC5646AudioLanguageCode, "RFC 5646 Spoken Language")
-
-    //                           02 - Data Interpretations and Definitions
-    //                             0A - Name-Value Construct Interpretations
-    UUID(060E2B34, 01010105, 0301020A, 01000000, 0000, "", Ansi_01, "")
-    UUID(060E2B34, 01010105, 0301020A, 01010000, 0000, "", UTF16_01, "")
-    UUID(060E2B34, 01010105, 0301020A, 02000000, 0000, "", Ansi_02, "")
-    UUID(060E2B34, 01010105, 0301020A, 02010000, 0000, "", UTF16_02, "")
-
-    //                             10 - KLV Interpretations
-    UUID(060E2B34, 01010101, 03010210, 01000000, 0000, "", Filler01, "")
-    UUID(060E2B34, 01010102, 03010210, 01000000, 0000, "", Filler02, "")
-    UUID(060E2B34, 01010102, 03010210, 05000000, 0000, "", TerminatingFiller, "")
-
-    //                             10 - XML Constructs and Interpretations
-    UUID(060E2B34, 01010105, 03010220, 01000000, 0000, "", XmlDocumentText, "")
-
-    //                         02 - Human Assigned Descriptors
-    //                           01 - Categorization
-    //                             01 - Content Classification
-
-    //                             02 - Cataloging and Indexing
-    UUID(060E2B34, 0101010E, 03020102, 20000000, 0000, "", MCAAudioContentKind, "")
-    UUID(060E2B34, 0101010E, 03020102, 21000000, 0000, "", MCAAudioElementKind, "")
-
-    //                       04 - Parametric
-    //                         01 - Video and Image Essence Characteristics
-    //                           06 - Digital Video and Image Compression Parameters
-    //                             02 - MPEG Coding Parameters
-    //                                 01 - MPEG-2 Coding Parameters
-    UUID(060E2B34, 01010105, 04010602, 01020000, 0000, "SMPTE ST 381-1", MPEG2VideoDescriptor_SingleSequence, "")
-    UUID(060E2B34, 01010105, 04010602, 01030000, 0000, "SMPTE ST 381-1", MPEG2VideoDescriptor_ConstantBFrames, "")
-    UUID(060E2B34, 01010105, 04010602, 01040000, 0000, "SMPTE ST 381-1", MPEG2VideoDescriptor_CodedContentType, "")
-    UUID(060E2B34, 01010105, 04010602, 01050000, 0000, "SMPTE ST 381-1", MPEG2VideoDescriptor_LowDelay, "")
-    UUID(060E2B34, 01010105, 04010602, 01060000, 0000, "SMPTE ST 381-1", MPEG2VideoDescriptor_ClosedGOP, "")
-    UUID(060E2B34, 01010105, 04010602, 01070000, 0000, "SMPTE ST 381-1", MPEG2VideoDescriptor_IdenticalGOP, "")
-    UUID(060E2B34, 01010105, 04010602, 01080000, 0000, "SMPTE ST 381-1", MPEG2VideoDescriptor_MaxGOP, "")
-    UUID(060E2B34, 01010105, 04010602, 01090000, 0000, "SMPTE ST 381-1", MPEG2VideoDescriptor_BPictureCount, "")
-    UUID(060E2B34, 01010105, 04010602, 010A0000, 0000, "SMPTE ST 381-1", MPEG2VideoDescriptor_ProfileAndLevel, "")
-    UUID(060E2B34, 01010105, 04010602, 010B0000, 0000, "SMPTE ST 381-1", MPEG2VideoDescriptor_BitRate, "")
-
-    //                                 02 - MPEG-4 Visual Coding Parameters
-    UUID(060E2B34, 01010105, 04010602, 02020000, 0000, "SMPTE ST 381-2", Mpeg4VisualDescriptor_SingleSequence, "")
-    UUID(060E2B34, 01010105, 04010602, 02030000, 0000, "SMPTE ST 381-2", Mpeg4VisualDescriptor_ConstantBFrames, "")
-    UUID(060E2B34, 01010105, 04010602, 02040000, 0000, "SMPTE ST 381-2", Mpeg4VisualDescriptor_CodedContentType, "")
-    UUID(060E2B34, 01010105, 04010602, 02050000, 0000, "SMPTE ST 381-2", Mpeg4VisualDescriptor_LowDelay, "")
-    UUID(060E2B34, 01010105, 04010602, 02060000, 0000, "SMPTE ST 381-2", Mpeg4VisualDescriptor_ClosedGOP, "")
-    UUID(060E2B34, 01010105, 04010602, 02070000, 0000, "SMPTE ST 381-2", Mpeg4VisualDescriptor_IdenticalGOP, "")
-    UUID(060E2B34, 01010105, 04010602, 02080000, 0000, "SMPTE ST 381-2", Mpeg4VisualDescriptor_MaxGOP, "")
-    UUID(060E2B34, 01010105, 04010602, 02090000, 0000, "SMPTE ST 381-2", Mpeg4VisualDescriptor_BPictureCount, "")
-    UUID(060E2B34, 01010105, 04010602, 020A0000, 0000, "SMPTE ST 381-2", Mpeg4VisualDescriptor_ProfileAndLevel, "")
-    UUID(060E2B34, 01010105, 04010602, 020B0000, 0000, "SMPTE ST 381-2", Mpeg4VisualDescriptor_BitRate, "")
-
-    //                             03 - JPEG 2000 Coding Parameters
-    UUID(060E2B34, 0101010A, 04010603, 01000000, 0000, "", JPEG2000PictureSubDescriptor_Rsiz, "")
-    UUID(060E2B34, 0101010A, 04010603, 02000000, 0000, "", JPEG2000PictureSubDescriptor_Xsiz, "")
-    UUID(060E2B34, 0101010A, 04010603, 03000000, 0000, "", JPEG2000PictureSubDescriptor_Ysiz, "")
-    UUID(060E2B34, 0101010A, 04010603, 04000000, 0000, "", JPEG2000PictureSubDescriptor_XOsiz, "")
-    UUID(060E2B34, 0101010A, 04010603, 05000000, 0000, "", JPEG2000PictureSubDescriptor_YOsiz, "")
-    UUID(060E2B34, 0101010A, 04010603, 06000000, 0000, "", JPEG2000PictureSubDescriptor_XTsiz, "")
-    UUID(060E2B34, 0101010A, 04010603, 07000000, 0000, "", JPEG2000PictureSubDescriptor_YTsiz, "")
-    UUID(060E2B34, 0101010A, 04010603, 08000000, 0000, "", JPEG2000PictureSubDescriptor_XTOsiz, "")
-    UUID(060E2B34, 0101010A, 04010603, 09000000, 0000, "", JPEG2000PictureSubDescriptor_YTOsiz, "")
-    UUID(060E2B34, 0101010A, 04010603, 0A000000, 0000, "", JPEG2000PictureSubDescriptor_Csiz, "")
-    UUID(060E2B34, 0101010A, 04010603, 0B000000, 0000, "", JPEG2000PictureSubDescriptor_PictureComponentSizing, "")
-    UUID(060E2B34, 0101010A, 04010603, 0C000000, 0000, "", JPEG2000PictureSubDescriptor_CodingStyleDefault, "")
-    UUID(060E2B34, 0101010A, 04010603, 0D000000, 0000, "", JPEG2000PictureSubDescriptor_QuantizationDefault, "")
-
-    //                             06 - AVC Parameters
-    //                                 01 - AVC Parameters
-    UUID(060E2B34, 01010105, 04010606, 01030000, 0000, "SMPTE ST 381-3", AVCDescriptor_ConstantBFrames, "")
-    UUID(060E2B34, 01010105, 04010606, 01040000, 0000, "SMPTE ST 381-3", AVCDescriptor_CodedContentType, "")
-    UUID(060E2B34, 01010105, 04010606, 01060000, 0000, "SMPTE ST 381-3", AVCDescriptor_ClosedGOP, "")
-    UUID(060E2B34, 01010105, 04010606, 01070000, 0000, "SMPTE ST 381-3", AVCDescriptor_IdenticalGOP, "")
-    UUID(060E2B34, 01010105, 04010606, 01080000, 0000, "SMPTE ST 381-3", AVCDescriptor_MaxGOP, "")
-    UUID(060E2B34, 01010105, 04010606, 01090000, 0000, "SMPTE ST 381-3", AVCDescriptor_BPictureCount, "")
-    UUID(060E2B34, 01010105, 04010606, 010A0000, 0000, "SMPTE ST 381-3", AVCDescriptor_Profile, "")
-    UUID(060E2B34, 01010105, 04010606, 010B0000, 0000, "SMPTE ST 381-3", AVCDescriptor_MaximumBitRate, "")
-    UUID(060E2B34, 01010105, 04010606, 010C0000, 0000, "SMPTE ST 381-3", AVCDescriptor_ProfileConstraint, "")
-    UUID(060E2B34, 01010105, 04010606, 010D0000, 0000, "SMPTE ST 381-3", AVCDescriptor_Level, "")
-    UUID(060E2B34, 01010105, 04010606, 010E0000, 0000, "SMPTE ST 381-3", AVCDescriptor_DecodingDelay, "")
-    UUID(060E2B34, 01010105, 04010606, 010F0000, 0000, "SMPTE ST 381-3", AVCDescriptor_MaximumRefFrames, "")
-    UUID(060E2B34, 01010105, 04010606, 01100000, 0000, "SMPTE ST 381-3", AVCDescriptor_SequenceParameterSetFlag, "")
-    UUID(060E2B34, 01010105, 04010606, 01110000, 0000, "SMPTE ST 381-3", AVCDescriptor_PictureParameterSetFlag, "")
-    UUID(060E2B34, 01010105, 04010606, 01140000, 0000, "SMPTE ST 381-3", AVCDescriptor_AverageBitRate, "")
-
-    //                         02 - Audio Essence Characteristics
-    //                           04 - Audio Compression Parameters
-    //                             03 - MPEG Coding Parameters
-    //                                 01 - MPEG-2 Coding Parameters
-    UUID(060E2B34, 01010105, 04020403, 01020000, 0000, "SMPTE ST 381-2", MpegAudioDescriptor_BitRate, "")
-
-    //                         09 - Format Characteristics
-    UUID(060E2B34, 0101010C, 04090500, 00000000, 0000, "SMPTE ST 429-5", UCSEncoding, "UCS Encoding")
-
-    //                         20 - Device Characteristics
-    //                           04 - Display Characteristics
-    //                             01 - Mastering Display Characteristics
-    //                                 01 - Mastering Display Color Volume
-    UUID(060E2B34, 0101010E, 04200401, 01010000, 0000, "SMPTE ST 2067-21", MasteringDisplayPrimaries, "Mastering Display Primaries")
-    UUID(060E2B34, 0101010E, 04200401, 01020000, 0000, "SMPTE ST 2067-21", MasteringDisplayWhitePointChromaticity, "Mastering Display White Point Chromaticity")
-    UUID(060E2B34, 0101010E, 04200401, 01030000, 0000, "SMPTE ST 2067-21", MasteringDisplayMaximumLuminance, "Mastering Display Maximum Luminance")
-    UUID(060E2B34, 0101010E, 04200401, 01040000, 0000, "SMPTE ST 2067-21", MasteringDisplayMinimumLuminance, "Mastering Display Minimum Luminance")
-
-    //                       05 - Process
-
-    //                       06 - Relational
-    //                         01 - Essence and Metadata Relationships
-    //                           04 - Essence to Essence Relationships
-    UUID(060E2B34, 01010109, 06010104, 06100000, 0000, "", SubDescriptors, "")
-
-    //                       07 - Spatio-temporal
-
-    //                       0C - Compound
-    //                         02 - Metadata sets created at point of creation or capture
-    //                           01 - Metadata sets associated with a video camera
-    //                             01 - Frame-based metadata set
-    UUID(060E2B34, 02530101, 0C020101, 01010000, 0000, "SMPTE RDD 18", LensUnitMetadata, "")
-    UUID(060E2B34, 02530101, 0C020101, 02010000, 0000, "SMPTE RDD 18", CameraUnitMetadata, "")
-    UUID(060E2B34, 02530101, 0C020101, 7F010000, 0000, "SMPTE RDD 18", UserDefinedAcquisitionMetadata, "")
-
-    //                       0D - Organizationally registered for public use
-    //                         01 - AAF Association
-    //                           01 - MXF Structural Metadata Sets
-    //                             01 - Version 1
-    //                                 01 - MXF compatible sets and packs
-    UUID(060E2B34, 02530101, 0D010101, 01010100, 0000, "SMPTE ST 377-1", InterchangeObject, "Interchange Object")
-    UUID(060E2B34, 02530101, 0D010101, 01010200, 0000, "SMPTE ST 377-1", StructuralComponent, "Structural Component")
-    UUID(060E2B34, 02530101, 0D010101, 01010300, 0000, "SMPTE ST 377-1", Segment, "Segment")
-    UUID(060E2B34, 02530101, 0D010101, 01010600, 0000, "SMPTE ST 377-1", Event, "Event")
-    UUID(060E2B34, 02530101, 0D010101, 01010800, 0000, "SMPTE ST 377-1", CommentMarker, "Comment Marker")
-    UUID(060E2B34, 02530101, 0D010101, 01010900, 0000, "SMPTE ST 377-1", DMFiller, "")
-    UUID(060E2B34, 02530101, 0D010101, 01010F00, 0000, "SMPTE ST 377-1", Sequence, "")
-    UUID(060E2B34, 02530101, 0D010101, 01011100, 0000, "SMPTE ST 377-1", SourceClip, "")
-    UUID(060E2B34, 02530101, 0D010101, 01011400, 0000, "SMPTE ST 377-1", TimecodeComponent, "")
-    UUID(060E2B34, 02530101, 0D010101, 01011800, 0000, "SMPTE ST 377-1", ContentStorage, "")
-    UUID(060E2B34, 02530101, 0D010101, 01012300, 0000, "SMPTE ST 377-1", EssenceContainerData, "")
-    UUID(060E2B34, 02530101, 0D010101, 01012400, 0000, "SMPTE ST 377-1", GenericDescriptor, "Generic Descriptor")
-    UUID(060E2B34, 02530101, 0D010101, 01012500, 0000, "SMPTE ST 377-1", FileDescriptor, "")
-    UUID(060E2B34, 02530101, 0D010101, 01012700, 0000, "SMPTE ST 377-1", GenericPictureEssenceDescriptor, "")
-    UUID(060E2B34, 02530101, 0D010101, 01012800, 0000, "SMPTE ST 377-1", CDCIEssenceDescriptor, "")
-    UUID(060E2B34, 02530101, 0D010101, 01012900, 0000, "SMPTE ST 377-1", RGBAEssenceDescriptor, "")
-    UUID(060E2B34, 02530101, 0D010101, 01012F00, 0000, "SMPTE ST 377-1", Preface, "")
-    UUID(060E2B34, 02530101, 0D010101, 01013000, 0000, "SMPTE ST 377-1", Identification, "")
-    UUID(060E2B34, 02530101, 0D010101, 01013200, 0000, "SMPTE ST 377-1", NetworkLocator, "")
-    UUID(060E2B34, 02530101, 0D010101, 01013300, 0000, "SMPTE ST 377-1", TextLocator, "")
-    UUID(060E2B34, 02530101, 0D010101, 01013400, 0000, "SMPTE ST 377-1", GenericPackage, "Generic Package")
-    UUID(060E2B34, 02530101, 0D010101, 01013600, 0000, "SMPTE ST 377-1", MaterialPackage, "")
-    UUID(060E2B34, 02530101, 0D010101, 01013700, 0000, "SMPTE ST 377-1", SourcePackage, "")
-    UUID(060E2B34, 02530101, 0D010101, 01013800, 0000, "SMPTE ST 377-1", GenericTrack , "Generic Track")
-    UUID(060E2B34, 02530101, 0D010101, 01013900, 0000, "SMPTE ST 377-1", EventTrack, "")
-    UUID(060E2B34, 02530101, 0D010101, 01013A00, 0000, "SMPTE ST 377-1", StaticTrack, "")
-    UUID(060E2B34, 02530101, 0D010101, 01013B00, 0000, "SMPTE ST 377-1", TimelineTrack, "")
-    UUID(060E2B34, 02530101, 0D010101, 01014100, 0000, "SMPTE ST 377-1", DMSegment, "")
-    UUID(060E2B34, 02530101, 0D010101, 01014200, 0000, "SMPTE ST 377-1", GenericSoundEssenceDescriptor, "")
-    UUID(060E2B34, 02530101, 0D010101, 01014300, 0000, "SMPTE ST 377-1", GenericDataEssenceDescriptor, "")
-    UUID(060E2B34, 02530101, 0D010101, 01014400, 0000, "SMPTE ST 377-1", MultipleDescriptor, "")
-    UUID(060E2B34, 02530101, 0D010101, 01014500, 0000, "SMPTE ST 377-1", DMSourceClip, "")
-    UUID(060E2B34, 02530101, 0D010101, 01014700, 0000, "", AES3PCMDescriptor, "")
-    UUID(060E2B34, 02530101, 0D010101, 01014800, 0000, "", WaveAudioDescriptor, "")
-    UUID(060E2B34, 02530101, 0D010101, 01015100, 0000, "SMPTE ST 381-1", MPEG2VideoDescriptor, "")
-    UUID(060E2B34, 02530101, 0D010101, 01015900, 0000, "SMPTE ST 377-1", SubDescriptor, "Sub Descriptor")
-    UUID(060E2B34, 02530101, 0D010101, 01015A00, 0000, "", JPEG2000PictureSubDescriptor, "")
-    UUID(060E2B34, 02530101, 0D010101, 01015B00, 0000, "", VbiPacketsDescriptor, "")
-    UUID(060E2B34, 02530101, 0D010101, 01015C00, 0000, "", AncPacketsDescriptor, "")
-    UUID(060E2B34, 02530101, 0D010101, 01015E00, 0000, "SMPTE ST 381-2", MpegAudioDescriptor, "MPEG Audio Descriptor")
-    UUID(060E2B34, 02530101, 0D010101, 01016000, 0000, "SMPTE ST 377-1", PackageMarkerObject, "")
-    UUID(060E2B34, 02530101, 0D010101, 01016100, 0000, "SMPTE ST 377-1", ApplicationPlugInObject, "")
-    UUID(060E2B34, 02530101, 0D010101, 01016200, 0000, "SMPTE ST 377-1", ApplicationReferencedObject, "")
-    UUID(060E2B34, 0253010C, 0D010101, 01016300, 0000, "SMPTE ST 429-10", StereoscopicPictureSubDescriptor, "")
-    UUID(060E2B34, 02530101, 0D010101, 01016400, 0000, "SMPTE ST 429-5", TimedTextDescriptor, "")
-    UUID(060E2B34, 02530101, 0D010101, 01016500, 0000, "SMPTE ST 429-5", TimedTextResourceSubDescriptor, "")
-    UUID(060E2B34, 02530101, 0D010101, 01016600, 0000, "SMPTE ST 377-1", ApplicationObject, "Application Object")
-    UUID(060E2B34, 02530101, 0D010101, 01016700, 0000, "SMPTE ST ?", ContainerConstraintsSubDescriptor, "Container Constraints Sub-Descriptor")
-    UUID(060E2B34, 02530101, 0D010101, 01016800, 0000, "SMPTE ST 381-2", Mpeg4VisualSubDescriptor, "MPEG-4 Visual Sub-Descriptor")
-    UUID(060E2B34, 02530101, 0D010101, 01016A00, 0000, "SMPTE ST 377-4", MCALabelSubDescriptor, "")
-    UUID(060E2B34, 02530101, 0D010101, 01016B00, 0000, "SMPTE ST 377-4", AudioChannelLabelSubDescriptor, "")
-    UUID(060E2B34, 02530101, 0D010101, 01016C00, 0000, "SMPTE ST 377-4", SoundfieldGroupLabelSubDescriptor, "")
-    UUID(060E2B34, 02530101, 0D010101, 01016D00, 0000, "SMPTE ST 377-4", GroupOfSoundfieldGroupsLabelSubDescriptor, "")
-    UUID(060E2B34, 02530101, 0D010101, 01016E00, 0000, "SMPTE ST 381-3", AVCSubDescriptor, "AVC Sub-Descriptor")
-
-    //                           02 - MXF File Structure
-    //                             01 - Version 1
-    //                                 01 - MXF File Structure sets & packs
-    UUID(060E2B34, 02050101, 0D010201, 01020100, 0000, "SMPTE ST 377-1", OpenIncompleteHeaderPartition, "")
-    UUID(060E2B34, 02050101, 0D010201, 01020200, 0000, "SMPTE ST 377-1", ClosedIncompleteHeaderPartition, "")
-    UUID(060E2B34, 02050101, 0D010201, 01020300, 0000, "SMPTE ST 377-1", OpenCompleteHeaderPartition, "")
-    UUID(060E2B34, 02050101, 0D010201, 01020400, 0000, "SMPTE ST 377-1", ClosedCompleteHeaderPartition, "")
-    UUID(060E2B34, 02050101, 0D010201, 01030100, 0000, "SMPTE ST 377-1", OpenIncompleteBodyPartition, "")
-    UUID(060E2B34, 02050101, 0D010201, 01030200, 0000, "SMPTE ST 377-1", ClosedIncompleteBodyPartition, "")
-    UUID(060E2B34, 02050101, 0D010201, 01030300, 0000, "SMPTE ST 377-1", OpenCompleteBodyPartition, "")
-    UUID(060E2B34, 02050101, 0D010201, 01030400, 0000, "SMPTE ST 377-1", ClosedCompleteBodyPartition, "")
-    UUID(060E2B34, 02050101, 0D010201, 01031100, 0000, "SMPTE ST 377-1", GenericStreamPartition, "")
-    UUID(060E2B34, 02050101, 0D010201, 01040100, 0000, "SMPTE ST 377-1", OpenIncompleteFooterPartition, "")
-    UUID(060E2B34, 02050101, 0D010201, 01040200, 0000, "SMPTE ST 377-1", ClosedIncompleteFooterPartition, "")
-    UUID(060E2B34, 02050101, 0D010201, 01040300, 0000, "SMPTE ST 377-1", OpenCompleteFooterPartition, "")
-    UUID(060E2B34, 02050101, 0D010201, 01040400, 0000, "SMPTE ST 377-1", ClosedCompleteFooterPartition, "")
-    UUID(060E2B34, 02050101, 0D010201, 01050100, 0000, "SMPTE ST 377-1", Primer, "")
-    UUID(060E2B34, 02530101, 0D010201, 01100100, 0000, "SMPTE ST 377-1", IndexTableSegment, "")
-    UUID(060E2B34, 02050101, 0D010201, 01110100, 0000, "SMPTE ST 377-1", RandomIndexPack, "")
-
-    //                           03 - ?
-    //                             01 - ?
-    //                                 00 - Generic
-    UUID(060E2B34, 01020101, 0D010301, 00000000, 0000, "", GenericContainer_Aaf, "")
-
-    //                                 04 - SDTI
-    UUID(060E2B34, 02050101, 0D010301, 04010100, 0000, "", SDTI_SystemMetadataPack, "")
-    UUID(060E2B34, 02430101, 0D010301, 04010200, 0000, "", SDTI_PackageMetadataSet, "")
-    UUID(060E2B34, 02430101, 0D010301, 04010300, 0000, "", SDTI_PictureMetadataSet, "")
-    UUID(060E2B34, 02430101, 0D010301, 04010400, 0000, "", SDTI_SoundMetadataSet, "")
-    UUID(060E2B34, 02430101, 0D010301, 04010500, 0000, "", SDTI_DataMetadataSet, "")
-    UUID(060E2B34, 02630101, 0D010301, 04010600, 0000, "", SDTI_ControlMetadataSet, "")
-
-    //                                 14 - System Scheme 1
-    UUID(060E2B34, 02530101, 0D010301, 14020000, 0000, "", SystemScheme1, "")
-
-    //                           04 - ?
-    //                             01 - ?
-    UUID(060E2B34, 02530101, 0D010401, 01010100, 0000, "", DMScheme1, "")
-
-    //                           05 - ?
-    //                             09 - ?
-    UUID(060E2B34, 0101010C, 0D010509, 01000000, 0000, "", Application05_09_01, "")
-
-    //                           07 - AMWA AS-11
-    //                             01 - ?
-    //                                 0B - ?
-    //                                   01 - AS-11 core metadata framework
-    UUID(060E2B34, 02530101, 0D010701, 0B010100, 0000, "AMWA AS-11", AS11_AAF_Core, "")
-    UUID(060E2B34, 01010101, 0D010701, 0B010101, 0000, "AMWA AS-11", AS11_Core_SeriesTitle, "")
-    UUID(060E2B34, 01010101, 0D010701, 0B010102, 0000, "AMWA AS-11", AS11_Core_ProgrammeTitle, "")
-    UUID(060E2B34, 01010101, 0D010701, 0B010103, 0000, "AMWA AS-11", AS11_Core_EpisodeTitleNumber, "")
-    UUID(060E2B34, 01010101, 0D010701, 0B010104, 0000, "AMWA AS-11", AS11_Core_ShimName, "")
-    UUID(060E2B34, 01010101, 0D010701, 0B010105, 0000, "AMWA AS-11", AS11_Core_AudioTrackLayout, "")
-    UUID(060E2B34, 01010101, 0D010701, 0B010106, 0000, "AMWA AS-11", AS11_Core_PrimaryAudioLanguage, "")
-    UUID(060E2B34, 01010101, 0D010701, 0B010107, 0000, "AMWA AS-11", AS11_Core_ClosedCaptionsPresent, "")
-    UUID(060E2B34, 01010101, 0D010701, 0B010108, 0000, "AMWA AS-11", AS11_Core_ClosedCaptionsType, "")
-    UUID(060E2B34, 01010101, 0D010701, 0B010109, 0000, "AMWA AS-11", AS11_Core_ClosedCaptionsLanguage, "")
-    UUID(060E2B34, 01010101, 0D010701, 0B01010A, 0000, "AMWA AS-11", AS11_Core_ShimVersion, "")
-
-    //                                   02 - AS-11 segmentation metadata framework
-    UUID(060E2B34, 02530101, 0D010701, 0B020100, 0000, "AMWA AS-11", AS11_AAF_Segmentation, "")
-    UUID(060E2B34, 01010101, 0D010701, 0B020101, 0000, "AMWA AS-11", AS11_Segment_PartNumber, "")
-    UUID(060E2B34, 01010101, 0D010701, 0B020102, 0000, "AMWA AS-11", AS11_Segment_PartTotal, "")
-
-    //                         0C - BBC
-    //                           01 - ?
-    //                             01 - ?
-    //                                 01 - ?
-    //                                   01 - AS-11 UK DPP metadata framework
-    UUID(060E2B34, 02530101, 0D0C0101, 01010000, 0000, "AMWA AS-11", AS11_AAF_UKDPP, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01010100, 0000, "AMWA AS-11", AS11_UKDPP_ProductionNumber, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01010200, 0000, "AMWA AS-11", AS11_UKDPP_Synopsis, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01010300, 0000, "AMWA AS-11", AS11_UKDPP_Originator, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01010400, 0000, "AMWA AS-11", AS11_UKDPP_CopyrightYear, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01010500, 0000, "AMWA AS-11", AS11_UKDPP_OtherIdentifier, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01010600, 0000, "AMWA AS-11", AS11_UKDPP_OtherIdentifierType, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01010700, 0000, "AMWA AS-11", AS11_UKDPP_Genre, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01010800, 0000, "AMWA AS-11", AS11_UKDPP_Distributor, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01010900, 0000, "AMWA AS-11", AS11_UKDPP_PictureRatio, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01010A00, 0000, "AMWA AS-11", AS11_UKDPP_3D, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01010B00, 0000, "AMWA AS-11", AS11_UKDPP_3DType, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01010C00, 0000, "AMWA AS-11", AS11_UKDPP_ProductPlacement, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01010D00, 0000, "AMWA AS-11", AS11_UKDPP_FpaPass, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01010E00, 0000, "AMWA AS-11", AS11_UKDPP_FpaManufacturer, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01010F00, 0000, "AMWA AS-11", AS11_UKDPP_FpaVersion, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01011000, 0000, "AMWA AS-11", AS11_UKDPP_VideoComments, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01011100, 0000, "AMWA AS-11", AS11_UKDPP_SecondaryAudioLanguage, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01011200, 0000, "AMWA AS-11", AS11_UKDPP_TertiaryAudioLanguage, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01011300, 0000, "AMWA AS-11", AS11_UKDPP_AudioLoudnessStandard, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01011400, 0000, "AMWA AS-11", AS11_UKDPP_AudioComments, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01011500, 0000, "AMWA AS-11", AS11_UKDPP_LineUpStart, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01011600, 0000, "AMWA AS-11", AS11_UKDPP_IdentClockStart, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01011700, 0000, "AMWA AS-11", AS11_UKDPP_TotalNumberOfParts, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01011800, 0000, "AMWA AS-11", AS11_UKDPP_TotalProgrammeDuration, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01011900, 0000, "AMWA AS-11", AS11_UKDPP_AudioDescriptionPresent, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01011A00, 0000, "AMWA AS-11", AS11_UKDPP_AudioDescriptionType, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01011B00, 0000, "AMWA AS-11", AS11_UKDPP_OpenCaptionsPresent, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01011C00, 0000, "AMWA AS-11", AS11_UKDPP_OpenCaptionsType, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01011D00, 0000, "AMWA AS-11", AS11_UKDPP_OpenCaptionsLanguage, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01011E00, 0000, "AMWA AS-11", AS11_UKDPP_SigningPresent, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01011F00, 0000, "AMWA AS-11", AS11_UKDPP_SignLanguage, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01012000, 0000, "AMWA AS-11", AS11_UKDPP_CompletionDate, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01012100, 0000, "AMWA AS-11", AS11_UKDPP_TextlessElementsExist, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01012200, 0000, "AMWA AS-11", AS11_UKDPP_ProgrammeHasText, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01012300, 0000, "AMWA AS-11", AS11_UKDPP_ProgrammeTextLanguage, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01012400, 0000, "AMWA AS-11", AS11_UKDPP_ContactEmail, "")
-    UUID(060E2B34, 01010101, 0D0C0101, 01012500, 0000, "AMWA AS-11", AS11_UKDPP_ContactTelephoneNumber, "")
-
-    //                       0E - Organizationally registered for private use
-    //                         04 - Avid
-    UUID(060E2B34, 01020101, 0E040301, 00000000, 0000, "", GenericContainer_Avid, "")
-
-    //                         06 - Sony
-    UUID(060E2B34, 01020101, 0E067F03, 00000000, 0000, "", GenericContainer_Sony, "")
-
-    //                         09 - Dolby
-    UUID(060E2B34, 01020105, 0E090607, 01010100, 0000, "Dolby", Dolby_PHDRImageMetadataItem, "")
-    UUID(060E2B34, 02530105, 0E090607, 01010103, 0000, "Dolby", Dolby_PHDRMetadataTrackSubDescriptor, "")
-    UUID(060E2B34, 01010105, 0E090607, 01010104, 0000, "Dolby", Dolby_DataDefinition, "")
-    UUID(060E2B34, 01010105, 0E090607, 01010105, 0000, "Dolby", Dolby_SourceTrackID, "")
-    UUID(060E2B34, 01010105, 0E090607, 01010106, 0000, "Dolby", Dolby_SimplePayloadSID, "")
-
-    //                         0B - Omneon Video Networks
-    UUID(060E2B34, 02530105, 0E0B0102, 01010100, 0000, "", Omneon_010201010100, "")
-    UUID(060E2B34, 02530105, 0E0B0102, 01020100, 0000, "", Omneon_010201020100, "")
-}
+#define VECTOR(LENGTH) \
+    auto Count=Vector(LENGTH); \
+    if (Count==(int32u)-1) \
+        return; \
 
 //---------------------------------------------------------------------------
 extern const char* Mpegv_profile_and_level_indication_profile[];
 extern const char* Mpegv_profile_and_level_indication_level[];
 extern const char* Mpeg4v_Profile_Level(int32u Profile_Level);
-extern const char* Avc_profile_idc(int8u profile_idc);
+extern string Avc_profile_level_string(int8u profile_idc, int8u level_idc=0, int8u constraint_set_flags=0);
 extern string Jpeg2000_Rsiz(int16u Rsiz);
 
 //---------------------------------------------------------------------------
@@ -511,61 +177,31 @@ static const char* Mxf_Category(int8u Category)
 {
     switch(Category)
     {
-        case 0x01 : return "Item";
-        case 0x02 : return "Group (Set/Pack)";
+        case 0x01 : return "Dictionary";
+        case 0x02 : return "Group";
         case 0x03 : return "Wrapper";
-        case 0x04 : return "Value";
+        case 0x04 : return "Label";
         default   : return "";
     }
 }
 
 //---------------------------------------------------------------------------
-static const char* Mxf_Registry(int8u Category, int8u Registry)
+static const char* Mxf_Registry(int16u CategoryRegistry) // SMPTE ST 336
 {
-    switch(Category)
+    switch (CategoryRegistry)
     {
-        case 0x01 : //"Item"
-                    switch(Registry)
-                    {
-                        case 0x01 : return "Metadata";
-                        case 0x02 : return "Essence";
-                        default   : return "";
-                    }
-        case 0x02 : //"Group (Set/Pack)"
-                    switch(Registry)
-                    {
-                        case 0x05 : return "Predefined items";
-                        case 0x43 : return "1-byte tag, 2-byte length";
-                        case 0x53 : return "2-byte tag, 2-byte length";
-                        case 0x63 : return "1-byte tag, 4-byte length";
-                        default   : return "";
-                    }
-        case 0x04 : //"Value"
-                    switch(Registry)
-                    {
-                        case 0x01 : return "Fixed";
-                        default   : return "";
-                    }
-        default   : return "";
-    }
-}
-
-//---------------------------------------------------------------------------
-static const char* Mxf_Structure(int8u Category, int8u Registry, int8u Structure)
-{
-    switch(Category)
-    {
-        case 0x01 : //"Item"
-                    switch(Registry)
-                    {
-                        case 0x02 : //Essence
-                                    switch(Structure)
-                                    {
-                                        case 0x01 : return "Standard";
-                                        default   : return "";
-                                    }
-                        default   : return "";
-                    }
+        // Dictionary
+        case 0x0101 : return "Metadata";
+        case 0x0102 : return "Essence";
+        // Group
+        case 0x0204 : return "Variable-Length Packs";
+        case 0x0205 : return "Defined-Length Packs";
+        case 0x0243 : return "2-byte length, 1-byte tag";
+        case 0x0253 : return "2-byte length, 2-byte tag";
+        case 0x0263 : return "4-byte length, 1-byte tag";
+        case 0x0273 : return "4-byte length, 2-byte tag";
+        // Label
+        case 0x0401 : return "Fixed";
         default   : return "";
     }
 }
@@ -625,110 +261,6 @@ static const char* Mxf_OperationalPattern(const int128u OperationalPattern)
 }
 
 //---------------------------------------------------------------------------
-static const char* Mxf_EssenceElement(const int128u EssenceElement)
-{
-    if ((EssenceElement.hi&0xFFFFFFFFFFFFFF00LL)!=0x060E2B3401020100LL)
-        return "";
-
-    int8u Code1=(int8u)((EssenceElement.lo&0xFF00000000000000LL)>>56);
-    int8u Code2=(int8u)((EssenceElement.lo&0x00FF000000000000LL)>>48);
-    int8u Code3=(int8u)((EssenceElement.lo&0x0000FF0000000000LL)>>40);
-    int8u Code4=(int8u)((EssenceElement.lo&0x000000FF00000000LL)>>32);
-    int8u Code5=(int8u)((EssenceElement.lo&0x00000000FF000000LL)>>24);
-    int8u Code7=(int8u)((EssenceElement.lo&0x000000000000FF00LL)>> 8);
-
-    switch (Code1)
-    {
-        case 0x0E : //Private
-                    switch (Code2)
-                    {
-                        case 0x06 : //Sony
-                                    case 0x15 : //GC Picture
-                                                switch (Code5)
-                                                {
-                                                    case 0x15 : return "Sony private picture stream";
-                                                    default   : return "Sony private stream";
-                                                }
-                        case 0x09 : //Dolby
-                                    switch (Code3)
-                                    {
-                                        case 0x06 :
-                                                    switch (Code4)
-                                                    {
-                                                        case 0x07 : return "Dolby Vision Frame Data";
-                                                        default   : return "Dolby private stream";
-                                                    }
-                                        default   : return "Dolby private stream";
-                                    }
-                        default   : return "Unknown private stream";
-                    }
-        default   : ;
-    }
-
-    switch (Code5)
-    {
-        case 0x05 : //CP Picture (SMPTE 386M)
-                    switch (Code7)
-                    {
-                        case 0x01 : return "D-10 Video";
-                        default   : return "Unknown stream";
-                    }
-        case 0x06 : //CP Sound (SMPTE 386M)
-                    switch (Code7)
-                    {
-                        case 0x10 : return "D-10 Audio";
-                        default   : return "Unknown stream";
-                    }
-        case 0x07 : //CP Data (SMPTE 386M)
-                    return "";
-        case 0x14 : //MXF in MXF?
-                    switch (Code7)
-                    {
-                        case 0x01 : return "MXF in MXF?";
-                        default   : return "Unknown stream";
-                    }
-        case 0x15 : //GC Picture
-                    switch (Code7)
-                    {
-                        case 0x01 : return "RGB";
-                        case 0x05 : return "MPEG stream (Frame)";
-                        case 0x06 : return "MPEG stream (Clip)";
-                        case 0x07 : return "MPEG stream (Custom)";
-                        case 0x08 : return "JPEG 2000";
-                        case 0x17 : return "ProRes";
-                        default   : return "Unknown stream";
-                    }
-        case 0x16 : //GC Sound
-                    switch (Code7)
-                    {
-                        case 0x01 : return "PCM"; //BWF
-                        case 0x02 : return "PCM"; //BWF
-                        case 0x03 : return "PCM"; //DV Audio
-                        case 0x04 : return "PCM"; //BWF
-                        case 0x05 : return "MPEG Audio / AC-3";
-                        case 0x0A : return "A-law";
-                        default   : return "Unknown stream";
-                    }
-        case 0x17 : //GC Data
-                    switch (Code7)
-                    {
-                        case 0x01 : return "VBI"; //Frame-Wrapped VBI Data Element
-                        case 0x02 : return "ANC"; //Frame-Wrapped ANC Data Element
-                        case 0x0B : return "Timed Text"; //Clip-Wrapped Timed Text Data Element, SMPTE ST 429-5
-                        default   : return "Unknown stream";
-                    }
-        case 0x18 : //GC Compound
-                    switch (Code7)
-                    {
-                        case 0x01 : return "DV"; //Frame
-                        case 0x02 : return "DV"; //Clip
-                        default   : return "Unknown stream";
-                    }
-        default   : return "Unknown stream";
-    }
-}
-
-//---------------------------------------------------------------------------
 static const char* Mxf_EssenceContainer(const int128u EssenceContainer)
 {
     if ((EssenceContainer.hi&0xFFFFFFFFFFFFFF00LL)!=0x060E2B3404010100LL)
@@ -769,7 +301,13 @@ static const char* Mxf_EssenceContainer(const int128u EssenceContainer)
                                                                                         case 0x10 : return "AVC";
                                                                                         case 0x11 : return "VC-3";
                                                                                         case 0x13 : return "Timed Text";
+                                                                                        case 0x16 : return "AAC (ADIF)";
+                                                                                        case 0x17 : return "AAC (ADTS)";
+                                                                                        case 0x18 : return "AAC (LATM/LOAS)";
                                                                                         case 0x1C : return "ProRes";
+                                                                                        case 0x1D : return "IAB";
+                                                                                        case 0x23 : return "FFV1";
+                                                                                        case 0x25 : return "MGA";
                                                                                         default   : return "";
                                                                                     }
                                                                         default   : return "";
@@ -837,90 +375,115 @@ static const char* Mxf_EssenceContainer(const int128u EssenceContainer)
 }
 
 //---------------------------------------------------------------------------
-static const char* Mxf_EssenceContainer_Mapping(int8u Code6, int8u Code7, int8u Code8)
+static const char* Mxf_EssenceContainer_Mapping(int64u Code_lo)
 {
-    switch (Code6)
-    {
-        case 0x01 : //D-10, SMPTE 386M
-                    return "Frame (D-10)";
-        case 0x02 : //DV, SMPTE 383M
-                    switch (Code8)
-                    {
-                        case 0x01 : return "Frame";
-                        case 0x02 : return "Clip";
-                        default   : return "";
-                    }
-        case 0x04 : //MPEG ES, SMPTE 381M
-        case 0x07 : //MPEG PES, SMPTE 381M
-        case 0x08 : //MPEG PS, SMPTE 381M
-        case 0x09 : //MPEG TS, SMPTE 381M
-        case 0x10 : //AVC
-        case 0x15 : //YUV
-                    switch (Code8)
-                    {
-                        case 0x01 : return "Frame";
-                        case 0x02 : return "Clip";
-                        case 0x03 : return "Custom: Stripe";
-                        case 0x04 : return "Custom: PES";
-                        case 0x05 : return "Custom: Fixed Audio Size";
-                        case 0x06 : return "Custom: Splice";
-                        case 0x07 : return "Custom: Closed GOP";
-                        case 0x08 : return "Custom: Slave";
-                        case 0x7F : return "Custom";
-                        default   : return "";
-                    }
-        case 0x05 : //Uncompressed pictures, SMPTE 384M
-                    switch (Code8)
-                    {
-                        case 0x01 : return "Frame";
-                        case 0x02 : return "Clip";
-                        case 0x03 : return "Line";
-                        default   : return "";
-                    }
-        case 0x06 : //AES-PCM, SMPTE 382M
-                    switch (Code7)
-                    {
-                        case 0x01 : return "Frame (BWF)";
-                        case 0x02 : return "Clip (BWF)";
-                        case 0x03 : return "Frame (AES)";
-                        case 0x04 : return "Clip (AES)";
-                        case 0x08 : return "Custom (BWF)";
-                        case 0x09 : return "Custom (AES)";
-                        default   : return "";
-                    }
-        case 0x0A : //A-Law
-                    switch (Code7)
-                    {
-                        case 0x01 : return "Frame";
-                        case 0x02 : return "Clip";
-                        case 0x03 : return "?";
-                        case 0x07 : return "Custom";
-                        default   : return "";
-                    }
-        case 0x0C : //JPEG 2000
-                    switch (Code7)
-                    {
-                        case 0x01 : return "Frame";
-                        case 0x02 : return "Clip";
-                        default   : return "";
-                    }
-        case 0x11 : //VC-3, SMPTE 2019-4
-                    switch (Code7)
-                    {
-                        case 0x01 : return "Frame";
-                        case 0x02 : return "Clip";
-                        default   : return "";
-                    }
-        case 0x13 : //Timed Text
-                    return "Clip";
-        case 0x1C : //ProRes
-                    switch (Code7)
-                    {
-                        case 0x01 : return "Frame";
-                        default   : return "";
-                    }
-        default   : return "";
+    switch (Code_lo & 0xFFFFFFFFFFFF0000) {
+    case Labels::MXFGCSMPTED10Mappings:
+        return "Frame (D-10)";
+    case Labels::MXFGCSMPTED11Mappings:
+    case Labels::MXFGCGenericVBIDataMappingUndefinedPayload:
+    case Labels::MXFGCGenericANCDataMappingUndefinedPayload:
+        return "Frame";
+    case Labels::MXFGCDVDIFMappings:
+        switch ((int8u)Code_lo) {
+        case 0x01: return "Frame";
+        case 0x02: return "Clip";
+        case 0x03: return "?";
+        }
+        break;
+    case Labels::MXFGCMPEGES:
+    case Labels::MXFGCMPEGPES:
+    case Labels::MXFGCMPEGPS:
+    case Labels::MXFGCMPEGTS:
+    case Labels::MXFGCAVCNALUnitStream:
+    case Labels::MXFGCAVCByteStream:
+    case Labels::MXFGCHEVCNALUnitStream:
+    case Labels::MXFGCHEVCByteStream:
+        switch ((int8u)Code_lo) {
+        case 0x01: return "Frame";
+        case 0x02: return "Clip";
+        case 0x03: return "Custom: Stripe";
+        case 0x04: return "Custom: PES";
+        case 0x05: return "Custom: Fixed Audio Size";
+        case 0x06: return "Custom: Splice";
+        case 0x07: return "Custom: Closed GOP";
+        case 0x08: return "Custom: Slave";
+        }
+        break;
+    case Labels::MXFGCUncompressedPictures:
+        switch ((int8u)Code_lo) {
+        case 0x01: return "Frame";
+        case 0x02: return "Clip";
+        case 0x03: return "Line";
+        }
+        break;
+    case Labels::MXFGCAESBWFAudio:
+        switch ((int8u)(Code_lo >> 8)) {
+        case 0x01: return "Frame (BWF)";
+        case 0x02: return "Clip (BWF)";
+        case 0x03: return "Frame (AES)";
+        case 0x04: return "Clip (AES)";
+        case 0x08: return "Custom (BWF)";
+        case 0x09: return "Custom (AES)";
+        }
+        break;
+    case Labels::MXFGCALawAudioMappings:
+    case Labels::MXFGCEncryptedDataMappings:
+    case Labels::MXFGCJPEG2000PictureMappings:
+    case Labels::MXFGCVC3Pictures:
+    case Labels::MXFGCVC1Pictures:
+    case Labels::MXFGCTIFFEP:
+    case Labels::MXFGCVC2Pictures:
+    case Labels::MXFGCACESPictures:
+    case Labels::MXFGCEssenceContainerDNxPacked:
+    case Labels::MXFGCFFV1Pictures:
+    case Labels::AvidTechnologyIncVC3Pictures:
+    case Labels::SonyCorporationRAWSQ:
+        switch ((int8u)(Code_lo >> 8)) {
+        case 0x01: return "Frame";
+        case 0x02: return "Clip";
+        case 0x03: return "?";
+        }
+        break;
+    case Labels::MXF_GC_AAC_ADIF:
+    case Labels::MXF_GC_AAC_ADTS:
+    case Labels::MXF_GC_AAC_LATM_LOAS:
+    case Labels::MXFGCVC5EssenceContainerLabel:
+        switch ((int8u)(Code_lo >> 8)) {
+        case 0x01: return "Frame";
+        case 0x02: return "Clip";
+        case 0x03: return "Custom";
+        }
+        break;
+    case Labels::MXFGCDMCVTData:
+    case Labels::MXFGCEssenceContainerProResPicture:
+    case Labels::MXFGCMGAAudioMappings:
+        switch ((int8u)(Code_lo >> 8)) {
+        case 0x01: return "Frame";
+        }
+        break;
+    case Labels::MXFGCGenericData:
+    case Labels::MXFGCImmersiveAudio:
+        switch ((int16u)Code_lo) {
+        case 0x0101: return "Clip";
+        case 0x0102: return "Frame";
+        }
+        break;
+    case Labels::MXFGCJPEGXSPictures:
+        switch ((int8u)(Code_lo >> 8)) {
+        case 0x01: return "Frame";
+        case 0x02: return "Clip";
+        case 0x03: return "Custom";
+        }
+        break;
+    case 0x0e09060701010000:
+        switch ((int16u)Code_lo) {
+        case 0x0103: return "Frame";
+        }
+        break;
     }
+
+    return "";
 }
 
 //---------------------------------------------------------------------------
@@ -992,6 +555,7 @@ static const char* Mxf_EssenceCompression(const int128u EssenceCompression)
                                                                                     {
                                                                                         case 0x01 : return "JPEG 2000";
                                                                                         case 0x06 : return "ProRes";
+                                                                                        case 0x09 : return "FFV1";
                                                                                         default   : return "";
                                                                                     }
                                                                         case 0x71 : return "VC-3";
@@ -1060,7 +624,26 @@ static const char* Mxf_EssenceCompression(const int128u EssenceCompression)
                                                                                                     }
                                                                                         default   : return "";
                                                                                     }
-                                                                         default   : return "";
+                                                                        case 0x04 : //MPEG Audio Compression (SMPTE ST 381-4)
+                                                                                    switch (Code6) {
+                                                                                        case 0x03 : //MPEG-2 AAC
+                                                                                                    switch (Code7)
+                                                                                                    {
+                                                                                                        case 0x01 : return "Low Complexity Profile MPEG-2 AAC";
+                                                                                                        case 0x02 : return "Low Complexity Profile MPEG-2 AAC LC+SBR";
+                                                                                                        default   : return ""; //Unknown
+                                                                                                    }
+                                                                                        case 0x04 : //MPEG-4 AAC
+                                                                                                    switch (Code7)
+                                                                                                    {
+                                                                                                        case 0x01 : return "MPEG-4 AAC Profile";
+                                                                                                        case 0x02 : return "MPEG-4 High Efficiency AAC Profile";
+                                                                                                        case 0x03 : return "MPEG-4 High Efficiency AAC v2 Profile";
+                                                                                                        default   : return ""; //Unknown
+                                                                                                    }
+                                                                                        default   : return "";
+                                                                                    }
+                                                                        default   : return "";
                                                                     }
                                                          default   : return "";
                                                     }
@@ -1115,6 +698,17 @@ static const char* Mxf_EssenceCompression(const int128u EssenceCompression)
                                                                         default   : return "";
                                                                     }
                                                          default   : return "";
+                                                    }
+                                         default   : return "";
+                                    }
+                        case 0x09 : //Dolby
+                                    switch (Code3)
+                                    {
+                                        case 0x06 :
+                                                    switch (Code4)
+                                                    {
+                                                        case 0x04 : return "IAB";
+                                                        default   : return "";
                                                     }
                                          default   : return "";
                                     }
@@ -1253,6 +847,27 @@ static const char* Mxf_EssenceCompression_Version(const int128u& EssenceCompress
                                                                                     }
                                                                         default   : return "";
                                                                     }
+
+                                                        case 0x04 : //MPEG Audio Compression (SMPTE ST 381-4)
+                                                                    switch (Code6)
+                                                                    {
+                                                                        case 0x03 : //MPEG-2 AAC
+                                                                                    switch (Code7)
+                                                                                    {
+                                                                                        case 0x01 : return "Version 4";
+                                                                                        case 0x02 : return "Version 4";
+                                                                                        default   : return ""; //Unknown
+                                                                                    }
+                                                                        case 0x04 : //MPEG-4 AAC
+                                                                                    switch (Code7)
+                                                                                    {
+                                                                                        case 0x01 : return "Version 4";
+                                                                                        case 0x02 : return "Version 4";
+                                                                                        case 0x03 : return "Version 4";
+                                                                                        default   : return ""; //Unknown
+                                                                                    }
+                                                                        default   : return "";
+                                                                    }
                                                             default   : return "";
                                                     }
                                             default   : return "";
@@ -1353,26 +968,118 @@ static const char* Mxf_ColorPrimaries(const int128u ColorPrimaries)
 }
 
 //---------------------------------------------------------------------------
-static const char* Mxf_TransferCharacteristic(const int128u TransferCharacteristic)
+const char* Mxf_TransferCharacteristic_MXF[]=
 {
-    int32u Code_Compare4=(int32u)TransferCharacteristic.lo;
-    switch ((int8u)(Code_Compare4>>16))
+    "BT.601",
+    "BT.709",
+    "SMPTE 240M",
+    "SMPTE 274M",
+    "BT.1361",
+    "Linear",
+    "SMPTE 428M",
+    "xvYCC",
+    "BT.2020", // ISO does a difference of value between 10 and 12 bit
+    "PQ",
+    "HLG",
+    "Gamma 2.6", // SMPTE ST 2067-50
+    "sRGB/sYCC", // IEC 61966-2-1
+};
+const char* Mxf_TransferCharacteristic_Sony_1[]= // 0x0E06x Sony values are read from SR Viewer program
+{
+    "DVW-709 Like",                      
+    "E10/E30STD for J EK",
+    "E10/E30STD for UC",
+    "",
+    "",
+    "BBC Initial50",
+    "SD CamCorder STD",
+    "BVW-400 Like",
+    "Ikegami",
+};
+const char* Mxf_TransferCharacteristic_Sony_2[]= // 0x0E06x Sony values are read from SR Viewer program
+{
+    "HG3250G36",
+    "HG4600G30",
+    "HG3259G40",
+    "HG4609G33",
+    "HG8000G36",
+    "HG8000G30",
+    "HG8009G40",
+    "HG8009G33",
+};
+const char* Mxf_TransferCharacteristic_Sony_3[]= // 0x0E06x Sony values are read from SR Viewer program
+{
+    "CINE1 of EX1/EX3",
+    "CINE2 of EX1/EX3",
+    "CINE3 of EX1/EX3",
+    "CINE4 of EX1/EX3",
+    "Kodak 5248 film like",
+    "Kodak 5245 film like",
+    "Kodak 5293 film like",
+    "Kodak 5296 film like",
+    "Average of Film of MSW-900",
+};
+const char* Mxf_TransferCharacteristic_Sony_4[]= // 0x0E06x Sony values are read from SR Viewer program
+{
+    "User defined curve1",
+    "User defined curve2",
+    "User defined curve3",
+    "User defined curve4",
+    "User defined curve5",
+    "User defined curve6",
+    "User defined curve7",
+    "User defined curve8",
+};
+const char* Mxf_TransferCharacteristic_Sony_5[]= // 0x0E06x Sony values are read from SR Viewer program
+{
+    "S-Log",
+    "FS-Log",
+    "R709 180%",
+    "R709 800%",
+    "",
+    "Cine-Log",
+    "ASC-CDL",
+};
+const char** Mxf_TransferCharacteristic_Sony[]=
+{
+    Mxf_TransferCharacteristic_Sony_1,
+    Mxf_TransferCharacteristic_Sony_2,
+    Mxf_TransferCharacteristic_Sony_3,
+    Mxf_TransferCharacteristic_Sony_4,
+    Mxf_TransferCharacteristic_Sony_5,
+};
+const int8u Mxf_TransferCharacteristic_Sony_Size[]=
+{
+    (int8u)(sizeof(Mxf_TransferCharacteristic_Sony_1)/sizeof(Mxf_TransferCharacteristic_Sony_1[0])),
+    (int8u)(sizeof(Mxf_TransferCharacteristic_Sony_2)/sizeof(Mxf_TransferCharacteristic_Sony_2[0])),
+    (int8u)(sizeof(Mxf_TransferCharacteristic_Sony_3)/sizeof(Mxf_TransferCharacteristic_Sony_3[0])),
+    (int8u)(sizeof(Mxf_TransferCharacteristic_Sony_4)/sizeof(Mxf_TransferCharacteristic_Sony_4[0])),
+    (int8u)(sizeof(Mxf_TransferCharacteristic_Sony_5)/sizeof(Mxf_TransferCharacteristic_Sony_5[0])),
+};
+static string Mxf_TransferCharacteristic(const int128u Value)
+{
+    if ((Value.lo>>24)==0x0401010101000000LL>>24) // MXF
     {
-        case 0x01 : return "BT.601";
-        case 0x02 : return "BT.709";
-        case 0x03 : return "SMPTE 240M";
-        case 0x04 : return "SMPTE 274M";
-        case 0x05 : return "BT.1361";
-        case 0x06 : return "Linear";
-        case 0x07 : return "SMPTE 428M";
-        case 0x08 : return "xvYCC";
-        case 0x09 : return "BT.2020"; // ISO does a difference of value between 10 and 12 bit
-        case 0x0A : return "PQ";
-        case 0x0B : return "HLG";
-        case 0x0C : return "Gamma 2.6"; // SMPTE ST 2067-50
-        case 0x0D : return "sRGB/sYCC"; // IEC 61966-2-1
-        default   : return "";
+        int8u Value2=(int8u)((Value.lo>>16)-1);
+        if (Value2<sizeof(Mxf_TransferCharacteristic_MXF)/sizeof(Mxf_TransferCharacteristic_MXF[0]))
+            return Mxf_TransferCharacteristic_MXF[Value2];
     }
+    if ((Value.lo>>16)==0x0E06040101010000LL>>16) // Sony
+    {
+        int8u Value2=(int8u)((Value.lo>>8)-1);
+        if (Value2<sizeof(Mxf_TransferCharacteristic_Sony_Size)/sizeof(Mxf_TransferCharacteristic_Sony_Size[0]))
+        {
+            int8u Value3=(int8u)(size_t(Value.lo)-1);
+            if (Value3<Mxf_TransferCharacteristic_Sony_Size[Value2])
+                return Mxf_TransferCharacteristic_Sony[Value2][Value3];
+        }
+    }
+
+    Ztring ValueS;
+    ValueS.From_Number(Value.lo, 16);
+    if (ValueS.size()<16)
+        ValueS.insert(0, 16-ValueS.size(), __T('0'));
+    return ValueS.To_UTF8();
 }
 
 //---------------------------------------------------------------------------
@@ -1427,8 +1134,8 @@ static const char* Mxf_ChannelAssignment_ChannelLayout(const int128u& ChannelLay
                                                     switch (ChannelsCount)
                                                     {
                                                         case  6 : return "L R C LFE Ls Rs";
-                                                        case  8 : return "L R C LFE Ls Rs Rls Rrs";
-                                                        default : return "L R C LFE Ls Rs Rls Rrs HI VI-N";
+                                                        case  8 : return "L R C LFE Ls Rs Lrs Rrs";
+                                                        default : return "L R C LFE Ls Rs Lrs Rrs HI VI-N";
                                                     }
                                         default   : return "";
                                     }
@@ -1852,7 +1559,7 @@ static const char* Mxf_AS11_FpaPass[Mxf_AS11_FpaPass_Count]=
 {
     "Yes",
     "No",
-    "Not tested",
+    "", // Not tested
 };
 
 //---------------------------------------------------------------------------
@@ -1909,22 +1616,22 @@ static const char* Mxf_AS11_SignLanguage[Mxf_AS11_SignLanguage_Count]=
 
 //---------------------------------------------------------------------------
 // EBU Tech 3349
-static string Mxf_CameraUnitMetadata_GammaforCDL(int8u Value)
+static string Mxf_CameraUnitAcquisitionMetadata_GammaforCDL(int8u Value)
 {
     switch(Value)
     {
         case 0x00 : return "Same as Capture Gamma";
-        case 0x01 : return "Scene Linear";
+        case 0x01 : return "Linear";
         case 0x02 : return "S-Log";
         case 0x03 : return "Cine-Log";
-        case 0xFF : return "Undefined";
+        case 0xFF : return "";
         default   : return Ztring::ToZtring(Value).To_UTF8();
     }
 };
 
 //---------------------------------------------------------------------------
 // EBU Tech 3349
-static string Mxf_CameraUnitMetadata_NeutralDensityFilterWheelSetting(int16u Value)
+static string Mxf_CameraUnitAcquisitionMetadata_NeutralDensityFilterWheelSetting(int16u Value)
 {
     switch(Value)
     {
@@ -1935,7 +1642,7 @@ static string Mxf_CameraUnitMetadata_NeutralDensityFilterWheelSetting(int16u Val
 
 //---------------------------------------------------------------------------
 // EBU Tech 3349
-static string Mxf_CameraUnitMetadata_ImageSensorReadoutMode(int8u Value)
+static string Mxf_CameraUnitAcquisitionMetadata_ImageSensorReadoutMode(int8u Value)
 {
     switch(Value)
     {
@@ -1948,72 +1655,8 @@ static string Mxf_CameraUnitMetadata_ImageSensorReadoutMode(int8u Value)
 };
 
 //---------------------------------------------------------------------------
-// EBU Tech 3349
-static string Mxf_CameraUnitMetadata_CaptureGammaEquation(int128u Value)
-{
-    switch(Value.lo)
-    {
-        case 0x0401010101010000LL : return "BT.470";                            // Directly from SMPTE registry
-        case 0x0401010101020000LL : return "BT.709";
-        case 0x0401010101030000LL : return "SMPTE ST 240";
-        case 0x0401010101040000LL : return "SMPTE ST 274";                      // Directly from SMPTE registry
-        case 0x0401010101050000LL : return "BT.1361";                           // Directly from SMPTE registry
-        case 0x0401010101060000LL : return "SceneLinear";                       // Directly from SMPTE registry
-        case 0x0E06040101010101LL : return "DVW-709 Like";                      // 0x0E06x values are read from SR Viewer program
-        case 0x0E06040101010102LL : return "E10/E30STD for J EK";
-        case 0x0E06040101010103LL : return "E10/E30STD for UC";
-        case 0x0E06040101010106LL : return "BBC Initial50";
-        case 0x0E06040101010107LL : return "SD CamCorder STD";
-        case 0x0E06040101010108LL : return "BVW-400 Like";
-        case 0x0E06040101010109LL : return "Ikegami";
-        case 0x0E0604010101017FLL : return "reproduced unknown label";
-        case 0x0E06040101010201LL : return "HG3250G36";
-        case 0x0E06040101010202LL : return "HG4600G30";
-        case 0x0E06040101010203LL : return "HG3259G40";
-        case 0x0E06040101010204LL : return "HG4609G33";
-        case 0x0E06040101010205LL : return "HG8000G36";
-        case 0x0E06040101010206LL : return "HG8000G30";
-        case 0x0E06040101010207LL : return "HG8009G40";
-        case 0x0E06040101010208LL : return "HG8009G33";
-        case 0x0E06040101010301LL : return "CINE1 of EX1/EX3";
-        case 0x0E06040101010302LL : return "CINE2 of EX1/EX3";
-        case 0x0E06040101010303LL : return "CINE3 of EX1/EX3";
-        case 0x0E06040101010304LL : return "CINE4 of EX1/EX3";
-        case 0x0E06040101010305LL : return "Kodak 5248 film like";
-        case 0x0E06040101010306LL : return "Kodak 5245 film like";
-        case 0x0E06040101010307LL : return "Kodak 5293 film like";
-        case 0x0E06040101010308LL : return "Kodak 5296 film like";
-        case 0x0E06040101010309LL : return "Average of Film of MSW-900";
-        case 0x0E06040101010401LL : return "User defined curve1";
-        case 0x0E06040101010402LL : return "User defined curve2";
-        case 0x0E06040101010403LL : return "User defined curve3";
-        case 0x0E06040101010404LL : return "User defined curve4";
-        case 0x0E06040101010405LL : return "User defined curve5";
-        case 0x0E06040101010406LL : return "User defined curve6";
-        case 0x0E06040101010407LL : return "User defined curve7";
-        case 0x0E06040101010408LL : return "User defined curve8";
-        case 0x0E06040101010501LL : return "S-Log";
-        case 0x0E06040101010502LL : return "FS-Log";
-        case 0x0E06040101010503LL : return "R709 180%";
-        case 0x0E06040101010504LL : return "R709 800%";
-        case 0x0E06040101010506LL : return "Cine-Log";
-        case 0x0E06040101010507LL : return "ASC-CDL";
-                                            
-
-        default   :
-                    {
-                    Ztring ValueS;
-                    ValueS.From_Number(Value.lo, 16);
-                    if (ValueS.size()<16)
-                        ValueS.insert(0, 16-ValueS.size(), __T('0'));
-                    return ValueS.To_UTF8();
-                    }
-    }
-};
-
-//---------------------------------------------------------------------------
 // RDD 18
-static string Mxf_CameraUnitMetadata_AutoExposureMode(int128u Value)
+static string Mxf_CameraUnitAcquisitionMetadata_AutoExposureMode(int128u Value)
 {
     switch(Value.lo)
     {
@@ -2035,7 +1678,7 @@ static string Mxf_CameraUnitMetadata_AutoExposureMode(int128u Value)
 
 //---------------------------------------------------------------------------
 // RDD 18
-static string Mxf_CameraUnitMetadata_AutoFocusSensingAreaSetting(int8u Value)
+static string Mxf_CameraUnitAcquisitionMetadata_AutoFocusSensingAreaSetting(int8u Value)
 {
     switch(Value)
     {
@@ -2050,7 +1693,7 @@ static string Mxf_CameraUnitMetadata_AutoFocusSensingAreaSetting(int8u Value)
 
 //---------------------------------------------------------------------------
 // RDD 18
-static string Mxf_CameraUnitMetadata_ColorCorrectionFilterWheelSetting(int8u Value)
+static string Mxf_CameraUnitAcquisitionMetadata_ColorCorrectionFilterWheelSetting(int8u Value)
 {
     switch(Value)
     {
@@ -2065,7 +1708,7 @@ static string Mxf_CameraUnitMetadata_ColorCorrectionFilterWheelSetting(int8u Val
 
 //---------------------------------------------------------------------------
 // RDD 18
-static string Mxf_CameraUnitMetadata_AutoWhiteBalanceMode(int8u Value)
+static string Mxf_CameraUnitAcquisitionMetadata_AutoWhiteBalanceMode(int8u Value)
 {
     switch(Value)
     {
@@ -2078,7 +1721,7 @@ static string Mxf_CameraUnitMetadata_AutoWhiteBalanceMode(int8u Value)
 }
 
 //---------------------------------------------------------------------------
-// CameraUnitMetadata
+// CameraUnitAcquisitionMetadata
 static string Mxf_AcquisitionMetadata_ElementName(int16u Value, bool IsSony=false)
 {
     if (IsSony)
@@ -2101,7 +1744,9 @@ static string Mxf_AcquisitionMetadata_ElementName(int16u Value, bool IsSony=fals
 
     switch (Value) // From EBU Tech 3349
     {
-        case 0x3210: return "CaptureGammaEquation";
+        case 0x3210: return "TransferCharacteristics"; // a.k.a. Capture Gamma Equation
+        case 0x3219: return "ColorPrimaries";
+        case 0x321A: return "MatrixCoefficients"; // a.k.a. Coding Equations
         case 0x8000: return "IrisFNumber";
         case 0x8001: return "FocusPositionFromImagePlane";
         case 0x8002: return "FocusPositionFromFrontLensVertex";
@@ -2144,7 +1789,7 @@ static string Mxf_AcquisitionMetadata_ElementName(int16u Value, bool IsSony=fals
 }
 
 //---------------------------------------------------------------------------
-// CameraUnitMetadata - Sony E201 (Values are internal MI)
+// CameraUnitAcquisitionMetadata - Sony E201 (Values are internal MI)
 const size_t Mxf_AcquisitionMetadata_Sony_E201_ElementCount = 11;
 static const char* Mxf_AcquisitionMetadata_Sony_E201_ElementName[Mxf_AcquisitionMetadata_Sony_E201_ElementCount] =
 {
@@ -2244,6 +1889,9 @@ File_Mxf::File_Mxf()
         Demux_EventWasSent_Accept_Specific=true;
     #endif //MEDIAINFO_DEMUX
 
+    //In
+    IsRtmd=false;
+
     //Hints
     File_Buffer_Size_Hint_Pointer=NULL;
     Synched_Count=0;
@@ -2267,6 +1915,7 @@ File_Mxf::File_Mxf()
     FooterPartitionAddress_Jumped=false;
     PartitionPack_Parsed=false;
     HeaderPartition_IsOpen=false;
+    Is1001=false;
     IdIsAlwaysSame_Offset=0;
     PartitionMetadata_PreviousPartition=(int64u)-1;
     PartitionMetadata_FooterPartition=(int64u)-1;
@@ -2281,8 +1930,6 @@ File_Mxf::File_Mxf()
         SDTI_PackageMetadataSet_Trace_Count=0;
         Padding_Trace_Count=0;
     #endif // MEDIAINFO_TRACE
-    SystemScheme1_TimeCodeArray_StartTimecode_ms=(int64u)-1;
-    SystemScheme1_FrameRateFromDescriptor=0;
     Essences_FirstEssence_Parsed=false;
     MayHaveCaptionsInStream=false;
     StereoscopicPictureSubDescriptor_IsPresent=false;
@@ -2296,12 +1943,14 @@ File_Mxf::File_Mxf()
     #endif //MEDIAINFO_NEXTPACKET
     #if defined(MEDIAINFO_ANCILLARY_YES)
         Ancillary=NULL;
-        Ancillary_IsBinded=false;
     #endif //defined(MEDIAINFO_ANCILLARY_YES)
 
     ExtraMetadata_Offset=(int64u)-1;
-    ExtraMetadata_SID=(int32u)-1;
-    DolbyVisionMetadata=NULL;
+    DolbyAudioMetadata=NULL;
+    #if defined(MEDIAINFO_ADM_YES)
+        Adm=NULL;
+        Adm_ForLaterMerge=NULL;
+    #endif
 
     #if MEDIAINFO_DEMUX
         Demux_HeaderParsed=false;
@@ -2332,8 +1981,14 @@ File_Mxf::File_Mxf()
 File_Mxf::~File_Mxf()
 {
     #if defined(MEDIAINFO_ANCILLARY_YES)
-        if (!Ancillary_IsBinded)
+        if (Ancillary)
+        {
+            for (essences::iterator Essence=Essences.begin(); Essence!=Essences.end(); ++Essence)
+                for (parsers::iterator Parser=Essence->second.Parsers.begin(); Parser!=Essence->second.Parsers.end(); ++Parser)
+                    if (*Parser == Ancillary)
+                        *Parser = nullptr;
             delete Ancillary;
+        }
     #endif //defined(MEDIAINFO_ANCILLARY_YES)
 	
     for (size_t i = 0; i < AcquisitionMetadataLists.size(); i++)
@@ -2345,6 +2000,10 @@ File_Mxf::~File_Mxf()
         delete AcquisitionMetadata_Sony_E201_Lists[ i ];
 	
     AcquisitionMetadata_Sony_E201_Lists.clear();
+    delete DolbyAudioMetadata;
+    #if defined(MEDIAINFO_ADM_YES)
+        delete Adm;
+    #endif
 }
 
 //***************************************************************************
@@ -2372,6 +2031,8 @@ void File_Mxf::Streams_Fill()
 //---------------------------------------------------------------------------
 void File_Mxf::Streams_Finish()
 {
+    Frame_Count=Frame_Count_NotParsedIncluded=FrameInfo.PTS=FrameInfo.DTS=(int64u)-1;
+
     #if MEDIAINFO_NEXTPACKET && defined(MEDIAINFO_REFERENCES_YES)
         //Locators only
         if (ReferenceFiles_IsParsing)
@@ -2423,11 +2084,6 @@ void File_Mxf::Streams_Finish()
         if (Tracks.empty())
         {
             //Clear
-            for (size_t StreamKind=Stream_General+1; StreamKind<Stream_Max; StreamKind++)
-            {
-                (*Stream)[StreamKind].clear();
-                (*Stream_More)[StreamKind].clear();
-            }
             for (essences::iterator Essence=Essences.begin(); Essence!=Essences.end(); ++Essence)
                 for (parsers::iterator Parser=Essence->second.Parsers.begin(); Parser!=Essence->second.Parsers.end(); ++Parser)
                 {
@@ -2478,7 +2134,7 @@ void File_Mxf::Streams_Finish()
     Fill(Stream_General, 0, General_Format_Profile, Mxf_OperationalPattern(OperationalPattern));
 
     //Time codes
-    if (SDTI_TimeCode_StartTimecode.IsValid())
+    if (SDTI_TimeCode_StartTimecode.IsSet())
     {
         bool IsDuplicate=false;
         for (size_t Pos2=0; Pos2<Count_Get(Stream_Other); Pos2++)
@@ -2492,23 +2148,7 @@ void File_Mxf::Streams_Finish()
             Fill(Stream_Other, StreamPos_Last, Other_Format, "SMPTE TC");
             Fill(Stream_Other, StreamPos_Last, Other_MuxingMode, "SDTI");
             Fill(Stream_Other, StreamPos_Last, Other_TimeCode_FirstFrame, SDTI_TimeCode_StartTimecode.ToString());
-            Fill(Stream_Other, StreamPos_Last, Other_FrameRate, SDTI_TimeCode_StartTimecode.FramesPerSecond/(SDTI_TimeCode_StartTimecode.DropFrame?1.001:1.000)*(SDTI_TimeCode_StartTimecode.MustUseSecondField?2:1));
-        }
-    }
-    if (SystemScheme1_TimeCodeArray_StartTimecode_ms!=(int64u)-1)
-    {
-        bool IsDuplicate=false;
-        for (size_t Pos2=0; Pos2<Count_Get(Stream_Other); Pos2++)
-            if (Retrieve(Stream_Other, Pos2, "TimeCode_Source")==__T("System scheme 1"))
-                IsDuplicate=true;
-        if (!IsDuplicate)
-        {
-            Fill_Flush();
-            Stream_Prepare(Stream_Other);
-            Fill(Stream_Other, StreamPos_Last, Other_Type, "Time code");
-            Fill(Stream_Other, StreamPos_Last, Other_Format, "SMPTE TC");
-            Fill(Stream_Other, StreamPos_Last, Other_MuxingMode, "System scheme 1");
-            Fill(Stream_Other, StreamPos_Last, Other_TimeCode_FirstFrame, SystemScheme1_TimeCodeArray_StartTimecode.c_str());
+            Fill(Stream_Other, StreamPos_Last, Other_FrameRate, SDTI_TimeCode_StartTimecode.GetFrameRate());
         }
     }
 
@@ -2526,12 +2166,9 @@ void File_Mxf::Streams_Finish()
     #if MEDIAINFO_ADVANCED
         if (Footer_Position!=(int64u)-1)
             Fill(Stream_General, 0, General_FooterSize, File_Size-Footer_Position);
-        else
-            Fill(Stream_General, 0, "IsTruncated", "Yes", Unlimited, true, true);
+        else if (Config->ParseSpeed>-1 || (!Partitions.empty() && Partitions[0].FooterPartition && Partitions[0].FooterPartition>=File_Size))
+            IsTruncated((!Partitions.empty() && Partitions[0].FooterPartition && Partitions[0].FooterPartition>=File_Size)?Partitions[0].FooterPartition:(int64u)-1, false, "MXF");
     #endif //MEDIAINFO_ADVANCED
-
-    //Commercial names
-    Streams_Finish_CommercialNames();
 
     //Handling separate streams
     for (size_t StreamKind=Stream_General+1; StreamKind<Stream_Max; StreamKind++)
@@ -2578,14 +2215,17 @@ void File_Mxf::Streams_Finish()
     }
 
     //System scheme 1
-    for (systemschemes::iterator SystemScheme=SystemSchemes.begin(); SystemScheme!=SystemSchemes.end(); ++SystemScheme)
+    for (const auto& SystemScheme : SystemScheme1s)
     {
-        if (!SystemScheme->second.IsTimeCode) //Already done somewhere else
+        for (size_t i=0; i<SystemScheme.second.TimeCodeArray_StartTimecodes.size(); i++)
         {
             Fill_Flush(); //TODO: remove it there is a refactoring
             Stream_Prepare(Stream_Other);
-            Fill(Stream_Other, StreamPos_Last, "ID", __T("System scheme 1-")+Ztring().From_Number((int8u)(SystemScheme->first>8))+__T('-')+Ztring().From_Number((int8u)(SystemScheme->first&0xFF)));
-            Fill(Stream_Other, StreamPos_Last, "MuxingMode", "System scheme 1");
+            Fill(Stream_Other, StreamPos_Last, Other_ID, "SystemScheme1-"+to_string(SystemScheme.first&0xFF)+'-'+to_string(i));
+            Fill(Stream_Other, StreamPos_Last, Other_Type, "Time code");
+            Fill(Stream_Other, StreamPos_Last, Other_Format, "SMPTE TC");
+            Fill(Stream_Other, StreamPos_Last, Other_MuxingMode, "System scheme 1");
+            Fill(Stream_Other, StreamPos_Last, Other_TimeCode_FirstFrame, SystemScheme.second.TimeCodeArray_StartTimecodes[i].ToString());
         }
     }
 
@@ -2614,10 +2254,11 @@ void File_Mxf::Streams_Finish()
         Fill_SetOptions(Stream_General, 0, "PrimaryPackage", "N NT");
     }
 
-    //CameraUnitMetadata
+    //CameraUnitAcquisitionMetadata
     if (!AcquisitionMetadataLists.empty())
     {
-        Stream_Prepare(Stream_Other);
+        if (!Count_Get(Stream_Other))
+            Stream_Prepare(Stream_Other);
 
         for (size_t Pos = 0; Pos < AcquisitionMetadataLists.size(); Pos++)
         {
@@ -2731,11 +2372,93 @@ void File_Mxf::Streams_Finish()
         }
     }
 
-    //Dolby Vision
-    if (DolbyVisionMetadata)
+    for (const auto& Parser : ToMergeLater)
     {
-        Merge(*DolbyVisionMetadata, Stream_Video, 0, 0);
+        if (Parser->Count_Get(Stream_Video))
+        {
+            for (const auto& Elem : MXFGenericStreamDataElementKey)
+            {
+                if (Elem.second.Parser->Count_Get(Stream_Video) && Elem.second.Parser->Retrieve_Const(Stream_General, 0, General_Format)==Parser->Retrieve_Const(Stream_General, 0, General_Format))
+                    Parser->Merge(*Elem.second.Parser, Stream_Video, 0, 0);
+            }
+            if (!Count_Get(Stream_Video))
+                Stream_Prepare(Stream_Video);
+            Merge(*Parser, Stream_Video, 0, 0);
+        }
+        delete Parser;
     }
+    ToMergeLater.clear();
+
+    //Metadata
+    for (const auto& Elem : MXFGenericStreamDataElementKey)
+    {
+        if (!Elem.second.Parser || !Count_Get(Stream_Other))
+            continue;
+        Stream_Prepare(Stream_Other);
+        Fill(Stream_Other, StreamPos_Last, Other_MuxingMode, "Generic Stream Data");
+        Fill(Stream_Other, StreamPos_Last, "MuxingMode_MoreInfo", "Contains additional metadata for other tracks");
+        Merge(*Elem.second.Parser, Stream_Other, 0, StreamPos_Last);
+
+        auto SID = Elem.second.SID;
+        if (SID) {
+            for (const auto& Descriptor : Descriptors) {
+                if (Descriptor.second.SID == SID) {
+                    for (const auto& Info : Descriptor.second.Infos) {
+                        Fill(Stream_Other, StreamPos_Last, Info.first.c_str(), Info.second);
+                    }
+                }
+            }
+        }
+    }
+    if (DolbyAudioMetadata) //Before ADM for having content before all ADM stuff
+        Merge(*DolbyAudioMetadata, Stream_Audio, 0, 0);
+    if (Adm)
+    {
+        Finish(Adm);
+        Merge(*Adm, Stream_Audio, 0, 0);
+    }
+    if (Adm_ForLaterMerge)
+    {
+        auto& S=*Adm_ForLaterMerge->Stream_More;
+        size_t Start=(Stream_Audio<S.size() && !S[Stream_Audio].empty())?S[Stream_Audio][0].size():0;
+        ((File_Iab*)Adm_ForLaterMerge)->Streams_Fill_ForAdm();
+        if (Adm)
+        {
+            //Check if compatible
+            size_t End=(Stream_Audio<S.size() && !S[Stream_Audio].empty())?S[Stream_Audio][0].size():0;
+            for (size_t i=Start; i<End; i++)
+            {
+                const auto& Field_Name=S[Stream_Audio][0][i][Info_Name];
+                const auto& Field_Text_Iab=S[Stream_Audio][0][i][Info_Text];
+                const auto& Field_Text_Adm=Retrieve_Const(Stream_Audio, 0, Field_Name.To_UTF8().c_str());
+                if ((Field_Text_Iab==__T("Yes") && Field_Text_Adm.empty())
+                 || (Field_Text_Iab!=__T("Yes") && Field_Text_Iab!=Field_Text_Adm && (Field_Name.find(__T(" ChannelLayout"))==string::npos
+                                                                                   || ChannelLayout_2018_Rename(Field_Text_Iab, __T("IAB"))!=ChannelLayout_2018_Rename(Field_Text_Adm, __T("ADM")))))
+                {
+                    Fill(Stream_Audio, 0, "Warnings", "Potential IAB/ADM coherency issues detected");
+                }
+
+            }
+        }
+        else
+        {
+            //Merge
+            Merge(*Adm_ForLaterMerge, Stream_Audio, 0, 0);
+        }
+    }
+    if (DolbyAudioMetadata) //After ADM for having content inside ADM stuff
+        ((File_DolbyAudioMetadata*)DolbyAudioMetadata)->Merge(*this, 0);
+    if (Adm && (!DolbyAudioMetadata || !((File_DolbyAudioMetadata*)DolbyAudioMetadata)->HasSegment9) && Retrieve_Const(Stream_Audio, 0, "AdmProfile_Format")==__T("Dolby Atmos Master"))
+    {
+        Clear(Stream_Audio, 0, "AdmProfile");
+        Clear(Stream_Audio, 0, "AdmProfile_Format");
+        Clear(Stream_Audio, 0, "AdmProfile_Version");
+    }
+
+    //Commercial names
+    Streams_Finish_CommercialNames();
+
+    Merge_Conformance();
 }
 
 //---------------------------------------------------------------------------
@@ -2913,16 +2636,16 @@ void File_Mxf::Streams_Finish_Essence(int32u EssenceUID, int128u TrackUID)
     parsers::iterator Parser=Essence->second.Parsers.begin();
 
     //Descriptive Metadata
-    std::vector<int128u> DMScheme1s_List;
+    std::vector<int128u> ProductionFrameworks_List;
     int32u TrackID=(int32u)-1;
     tracks::iterator Track=Tracks.find(TrackUID);
     if (Track!=Tracks.end())
         TrackID=Track->second.TrackID;
 
-    for (dmsegments::iterator DMSegment=DMSegments.begin(); DMSegment!=DMSegments.end(); ++DMSegment)
-        for (size_t Pos=0; Pos<DMSegment->second.TrackIDs.size(); Pos++)
-            if (DMSegment->second.TrackIDs[Pos]==TrackID)
-                DMScheme1s_List.push_back(DMSegment->second.Framework);
+    for (dmsegments::iterator DescriptiveMarker=DescriptiveMarkers.begin(); DescriptiveMarker!=DescriptiveMarkers.end(); ++DescriptiveMarker)
+        for (size_t Pos=0; Pos<DescriptiveMarker->second.TrackIDs.size(); Pos++)
+            if (DescriptiveMarker->second.TrackIDs[Pos]==TrackID)
+                ProductionFrameworks_List.push_back(DescriptiveMarker->second.Framework);
 
     if (Config->ParseSpeed<1.0 && !(*Parser)->Status[IsFinished])
     {
@@ -2931,7 +2654,7 @@ void File_Mxf::Streams_Finish_Essence(int32u EssenceUID, int128u TrackUID)
     }
     Finish(*Parser);
     StreamKind_Last=Stream_Max;
-    if ((*Parser)->Count_Get(Stream_Video))
+    if ((*Parser)->Count_Get(Stream_Video) && (*Parser)->Get(Stream_General, 0, General_Format)!=__T("Dolby Vision Metadata") && (*Parser)->Get(Stream_General, 0, General_Format) != __T("HDR Vivid Metadata"))
     {
         Stream_Prepare(Stream_Video);
         if (IsSub)
@@ -2975,7 +2698,27 @@ void File_Mxf::Streams_Finish_Essence(int32u EssenceUID, int128u TrackUID)
         Fill(StreamKind_Last, StreamPos_Last, Info->first.c_str(), Info->second, true);
     if (MxfTimeCodeForDelay.IsInit())
     {
-        const float64 TimeCode_StartTimecode_Temp = MxfTimeCodeForDelay.Get_TimeCode_StartTimecode_Temp(Config->File_IgnoreEditsBefore);
+        bool MxfTimeCodeForDelay_Is1001 = false;
+        if (Demux_Rate) {
+            MxfTimeCodeForDelay_Is1001 = Demux_Rate != (int)Demux_Rate;
+        }
+        else if (MxfTimeCodeForDelay.InstanceUID != 0) {
+            for (const auto& Component : Components) {
+                for (const auto& StructuralComponent : Component.second.StructuralComponents) {
+                    if (StructuralComponent == MxfTimeCodeForDelay.InstanceUID) {
+                        for (const auto& Track : Tracks) {
+                            if (Track.second.Sequence == Component.first) {
+                                if (Track.second.EditRate && Track.second.EditRate != (int)Track.second.EditRate) {
+                                    MxfTimeCodeForDelay_Is1001 = true; // TODO: if audio with timecode with audio sampling rate, it does not work, is there a way to know that it is 1/1.001 based?
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        const float64 TimeCode_StartTimecode_Temp = MxfTimeCodeForDelay.Get_TimeCode_StartTimecode_Temp(Config->File_IgnoreEditsBefore, MxfTimeCodeForDelay_Is1001);
         Fill(StreamKind_Last, StreamPos_Last, Fill_Parameter(StreamKind_Last, Generic_Delay), TimeCode_StartTimecode_Temp*1000, 0, true);
         Fill(StreamKind_Last, StreamPos_Last, Fill_Parameter(StreamKind_Last, Generic_Delay_Source), "Container");
         Fill(StreamKind_Last, StreamPos_Last, Fill_Parameter(StreamKind_Last, Generic_Delay_DropFrame), MxfTimeCodeForDelay.DropFrame?"Yes":"No");
@@ -2984,18 +2727,22 @@ void File_Mxf::Streams_Finish_Essence(int32u EssenceUID, int128u TrackUID)
         //Fill(StreamKind_Last, StreamPos_Last, Fill_Parameter(StreamKind_Last, Generic_TimeCode_FirstFrame), TC.ToString().c_str());
         //Fill(StreamKind_Last, StreamPos_Last, Fill_Parameter(StreamKind_Last, Generic_TimeCode_Source), "Time code track (stripped)");
     }
-    if (SDTI_TimeCode_StartTimecode.IsValid())
+    size_t SDTI_TimeCode_StartTimecode_StreamPos_Last{};
+    if (SDTI_TimeCode_StartTimecode.IsSet())
     {
-        Fill(StreamKind_Last, StreamPos_Last, "Delay_SDTI", SDTI_TimeCode_StartTimecode.ToMilliseconds());
+        SDTI_TimeCode_StartTimecode_StreamPos_Last=StreamPos_Last;
+        Fill(StreamKind_Last, StreamPos_Last, "Delay_SDTI", (int64s)SDTI_TimeCode_StartTimecode.ToMilliseconds());
         if (StreamKind_Last!=Stream_Max)
             Fill_SetOptions(StreamKind_Last, StreamPos_Last, "Delay_SDTI", "N NT");
 
         //Fill(StreamKind_Last, StreamPos_Last, Fill_Parameter(StreamKind_Last, Generic_TimeCode_FirstFrame), SDTI_TimeCode_StartTimecode.c_str());
         //Fill(StreamKind_Last, StreamPos_Last, Fill_Parameter(StreamKind_Last, Generic_TimeCode_Source), "SDTI");
     }
-    if (SystemScheme1_TimeCodeArray_StartTimecode_ms!=(int64u)-1)
+    size_t SystemScheme1_TimeCodeArray_StartTimecode_StreamPos_Last{};
+    if (!SystemScheme1s.empty() && !SystemScheme1s.begin()->second.TimeCodeArray_StartTimecodes.empty())
     {
-        Fill(StreamKind_Last, StreamPos_Last, "Delay_SystemScheme1", SystemScheme1_TimeCodeArray_StartTimecode_ms);
+        SystemScheme1_TimeCodeArray_StartTimecode_StreamPos_Last=StreamPos_Last;
+        Fill(StreamKind_Last, StreamPos_Last, "Delay_SystemScheme1", (int64s)SystemScheme1s.begin()->second.TimeCodeArray_StartTimecodes.front().ToMilliseconds());
         if (StreamKind_Last!=Stream_Max)
             Fill_SetOptions(StreamKind_Last, StreamPos_Last, "Delay_SystemScheme1", "N NT");
 
@@ -3087,12 +2834,12 @@ void File_Mxf::Streams_Finish_Essence(int32u EssenceUID, int128u TrackUID)
                     Fill_SetOptions(StreamKind_Last, StreamPos_Last, "Delay_SystemScheme1", "N NT");
             }
 
-            for (size_t Pos=0; Pos<DMScheme1s_List.size(); Pos++)
+            for (size_t Pos=0; Pos<ProductionFrameworks_List.size(); Pos++)
             {
-                dmscheme1s::iterator DMScheme1=DMScheme1s.find(DMScheme1s_List[Pos]);
-                if (DMScheme1!=DMScheme1s.end())
+                dmscheme1s::iterator ProductionFramework=ProductionFrameworks.find(ProductionFrameworks_List[Pos]);
+                if (ProductionFramework!=ProductionFrameworks.end())
                 {
-                    Fill(StreamKind_Last, StreamPos_Last, Fill_Parameter(StreamKind_Last, Generic_Language), DMScheme1->second.PrimaryExtendedSpokenLanguage, true);
+                    Fill(StreamKind_Last, StreamPos_Last, Fill_Parameter(StreamKind_Last, Generic_Language), ProductionFramework->second.PrimaryExtendedSpokenLanguage, true);
                 }
             }
         }
@@ -3107,11 +2854,10 @@ void File_Mxf::Streams_Finish_Essence(int32u EssenceUID, int128u TrackUID)
                     Fill(Stream_Audio, StreamPos_Last, Audio_Channel_s_, Descriptor->second.ChannelCount);
                     break;
                 }
-
-        MergedStreams_Last.clear(); //TODO: better way to do this
+        if (!Adm_ForLaterMerge && (*Parser)->Retrieve(Stream_Audio, StreamPos_Last, Audio_Format)==__T("IAB"))
+            Adm_ForLaterMerge=(File_Iab*)*Parser; // Will be used later for ADM
 
         Merge(*(*Parser), StreamKind_Last, 0, StreamPos_Last);
-        MergedStreams_Last.push_back(streamidentity(StreamKind_Last, StreamPos_Last));
 
         Ztring LawRating=(*Parser)->Retrieve(Stream_General, 0, General_LawRating);
         if (!LawRating.empty())
@@ -3120,12 +2866,12 @@ void File_Mxf::Streams_Finish_Essence(int32u EssenceUID, int128u TrackUID)
         if (!Title.empty() && Retrieve(Stream_General, 0, General_Title).empty())
             Fill(Stream_General, 0, General_Title, Title);
 
-        for (size_t Pos=0; Pos<DMScheme1s_List.size(); Pos++)
+        for (size_t Pos=0; Pos<ProductionFrameworks_List.size(); Pos++)
         {
-            dmscheme1s::iterator DMScheme1=DMScheme1s.find(DMScheme1s_List[Pos]);
-            if (DMScheme1!=DMScheme1s.end())
+            dmscheme1s::iterator ProductionFramework=ProductionFrameworks.find(ProductionFrameworks_List[Pos]);
+            if (ProductionFramework!=ProductionFrameworks.end())
             {
-                Fill(StreamKind_Last, StreamPos_Last, Fill_Parameter(StreamKind_Last, Generic_Language), DMScheme1->second.PrimaryExtendedSpokenLanguage, true);
+                Fill(StreamKind_Last, StreamPos_Last, Fill_Parameter(StreamKind_Last, Generic_Language), ProductionFramework->second.PrimaryExtendedSpokenLanguage, true);
             }
         }
 
@@ -3134,7 +2880,6 @@ void File_Mxf::Streams_Finish_Essence(int32u EssenceUID, int128u TrackUID)
             Stream_Prepare(StreamKind_Last);
             Fill(StreamKind_Last, StreamPos_Last, "Title", Retrieve_Const(StreamKind_Last, StreamPos_Last-StreamPos, "Title"));
             Merge(*(*Parser), StreamKind_Last, StreamPos, StreamPos_Last);
-            MergedStreams_Last.push_back(streamidentity(StreamKind_Last, StreamPos_Last));
         }
 
         if (StreamKind_Last!=Stream_Other && (*Parser)->Count_Get(Stream_Other))
@@ -3171,7 +2916,27 @@ void File_Mxf::Streams_Finish_Essence(int32u EssenceUID, int128u TrackUID)
                 (*Parser)->Finish();
                 if (MxfTimeCodeForDelay.IsInit())
                 {
-                    const float64 TimeCode_StartTimecode_Temp = MxfTimeCodeForDelay.Get_TimeCode_StartTimecode_Temp(Config->File_IgnoreEditsBefore);
+                    bool MxfTimeCodeForDelay_Is1001 = false;
+                    if (Demux_Rate) {
+                        MxfTimeCodeForDelay_Is1001 = Demux_Rate != (int)Demux_Rate;
+                    }
+                    else if (MxfTimeCodeForDelay.InstanceUID != 0) {
+                        for (const auto& Component : Components) {
+                            for (const auto& StructuralComponent : Component.second.StructuralComponents) {
+                                if (StructuralComponent == MxfTimeCodeForDelay.InstanceUID) {
+                                    for (const auto& Track : Tracks) {
+                                        if (Track.second.Sequence == Component.first) {
+                                            if (Track.second.EditRate && Track.second.EditRate != (int)Track.second.EditRate) {
+                                                MxfTimeCodeForDelay_Is1001 = true; // TODO: if audio with timecode with audio sampling rate, it does not work, is there a way to know that it is 1/1.001 based?
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    const float64 TimeCode_StartTimecode_Temp = MxfTimeCodeForDelay.Get_TimeCode_StartTimecode_Temp(Config->File_IgnoreEditsBefore, MxfTimeCodeForDelay_Is1001);
                     Fill(Stream_Audio, StreamPos_Last, Fill_Parameter(StreamKind_Last, Generic_Delay), TimeCode_StartTimecode_Temp*1000, 0, true);
                     Fill(Stream_Audio, StreamPos_Last, Fill_Parameter(StreamKind_Last, Generic_Delay_Source), "Container");
                 }
@@ -3206,7 +2971,27 @@ void File_Mxf::Streams_Finish_Essence(int32u EssenceUID, int128u TrackUID)
             (*Parser)->Finish();
             if (MxfTimeCodeForDelay.IsInit())
             {
-                const float64 TimeCode_StartTimecode_Temp= MxfTimeCodeForDelay.Get_TimeCode_StartTimecode_Temp(Config->File_IgnoreEditsBefore);
+                bool MxfTimeCodeForDelay_Is1001 = false;
+                if (Demux_Rate) {
+                    MxfTimeCodeForDelay_Is1001 = Demux_Rate != (int)Demux_Rate;
+                }
+                else if (MxfTimeCodeForDelay.InstanceUID != 0) {
+                    for (const auto& Component : Components) {
+                        for (const auto& StructuralComponent : Component.second.StructuralComponents) {
+                            if (StructuralComponent == MxfTimeCodeForDelay.InstanceUID) {
+                                for (const auto& Track : Tracks) {
+                                    if (Track.second.Sequence == Component.first) {
+                                        if (Track.second.EditRate && Track.second.EditRate != (int)Track.second.EditRate) {
+                                            MxfTimeCodeForDelay_Is1001 = true; // TODO: if audio with timecode with audio sampling rate, it does not work, is there a way to know that it is 1/1.001 based?
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                const float64 TimeCode_StartTimecode_Temp = MxfTimeCodeForDelay.Get_TimeCode_StartTimecode_Temp(Config->File_IgnoreEditsBefore, MxfTimeCodeForDelay_Is1001);
                 Fill(Stream_Text, Parser_Text_Pos, Fill_Parameter(StreamKind_Last, Generic_Delay), TimeCode_StartTimecode_Temp*1000, 0, true);
                 Fill(Stream_Text, Parser_Text_Pos, Fill_Parameter(StreamKind_Last, Generic_Delay_Source), "Container");
             }
@@ -3231,12 +3016,12 @@ void File_Mxf::Streams_Finish_Essence(int32u EssenceUID, int128u TrackUID)
                 Fill(Stream_Text, StreamPos_Last, Text_Title, Retrieve(Stream_Video, Count_Get(Stream_Video)-1, Video_Title), true);
             }
 
-            for (size_t Pos=0; Pos<DMScheme1s_List.size(); Pos++)
+            for (size_t Pos=0; Pos<ProductionFrameworks_List.size(); Pos++)
             {
-                dmscheme1s::iterator DMScheme1=DMScheme1s.find(DMScheme1s_List[Pos]);
-                if (DMScheme1!=DMScheme1s.end())
+                dmscheme1s::iterator ProductionFramework=ProductionFrameworks.find(ProductionFrameworks_List[Pos]);
+                if (ProductionFramework!=ProductionFrameworks.end())
                 {
-                    Fill(StreamKind_Last, StreamPos_Last, Fill_Parameter(StreamKind_Last, Generic_Language), DMScheme1->second.PrimaryExtendedSpokenLanguage, true);
+                    Fill(StreamKind_Last, StreamPos_Last, Fill_Parameter(StreamKind_Last, Generic_Language), ProductionFramework->second.PrimaryExtendedSpokenLanguage, true);
                 }
             }
         }
@@ -3292,8 +3077,37 @@ void File_Mxf::Streams_Finish_Essence(int32u EssenceUID, int128u TrackUID)
         Fill(StreamKind_Last, StreamPos_Last, Fill_Parameter(StreamKind_Last, Generic_StreamSize), Stream_Size);
     }
 
+    if (SDTI_TimeCode_StartTimecode.IsSet())
+    {
+        TimeCode TC=SDTI_TimeCode_StartTimecode;
+        int32u FrameRate=float32_int32s(Retrieve_Const(StreamKind_Last, StreamPos_Last, Fill_Parameter(StreamKind_Last, Generic_FrameRate)).To_float32());
+        if (FrameRate)
+            TC.SetFramesMax((int16u)(FrameRate-1));
+        Fill(StreamKind_Last, SDTI_TimeCode_StartTimecode_StreamPos_Last, "Delay_SDTI", (int64s)TC.ToMilliseconds(), true, true);
+    }
+    if (!SystemScheme1s.empty() && !SystemScheme1s.begin()->second.TimeCodeArray_StartTimecodes.empty())
+    {
+        TimeCode TC=SystemScheme1s.begin()->second.TimeCodeArray_StartTimecodes.front();
+        int32u FrameRate=float32_int32s(Retrieve_Const(StreamKind_Last, StreamPos_Last, Fill_Parameter(StreamKind_Last, Generic_FrameRate)).To_float32());
+        if (FrameRate)
+            TC.SetFramesMax((int16u)(FrameRate-1));
+        Fill(StreamKind_Last, SystemScheme1_TimeCodeArray_StartTimecode_StreamPos_Last, "Delay_SystemScheme1", (int64s)TC.ToMilliseconds(), true, true);
+    }
+
     //Done
     Essence->second.Stream_Finish_Done=true;
+
+    if ((*Parser))
+    {
+        // TODO: avoid this hack
+        const auto& Format = (*Parser)->Retrieve_Const(Stream_General, 0, General_Format);
+        if (Format == __T("Dolby Vision Metadata")
+         || Format == __T("HDR Vivid Metadata"))
+        {
+            ToMergeLater.push_back(*Parser);
+            *Parser = nullptr;
+        }
+    }
 }
 
 //---------------------------------------------------------------------------
@@ -3393,10 +3207,32 @@ void File_Mxf::Streams_Finish_Descriptor(const int128u DescriptorUID, const int1
     }
     if (StreamPos_Last==(size_t)-1)
     {
-        if (Descriptors.size()==1)
+        auto NotSubDescriptorCount=Descriptors.size();
+        auto NotSubDescriptorID=Descriptor->first;
+        for (const auto& SearchedDescriptor : Descriptors)
+        {
+            if (Locators.empty() && Descriptor->second.StreamKind!=Stream_Max && SearchedDescriptor.second.StreamKind!=Descriptor->second.StreamKind)
+            {
+                NotSubDescriptorCount--;
+                continue;
+            }
+            auto IsSubDescriptor=false;
+            for (const auto& SearchingDescriptor : Descriptors)
+                for (const auto& SearchingDescriptor_SubID : SearchingDescriptor.second.SubDescriptors)
+                    if (SearchedDescriptor.first==SearchingDescriptor_SubID)
+                        IsSubDescriptor=true;
+            NotSubDescriptorCount-=IsSubDescriptor;
+            if (!IsSubDescriptor)
+                NotSubDescriptorID=SearchedDescriptor.first;
+        }
+        if (NotSubDescriptorCount==1 && NotSubDescriptorID==Descriptor->first)
         {
             if (Count_Get(Descriptor->second.StreamKind)==0)
+            {
                 Stream_Prepare(Descriptor->second.StreamKind);
+                if (Descriptor->second.LinkedTrackID!=(int32u)-1)
+                    Fill(StreamKind_Last, StreamPos_Last, General_ID, Descriptor->second.LinkedTrackID);
+            }
             else
                 StreamPos_Last=0;
         }
@@ -3492,6 +3328,49 @@ void File_Mxf::Streams_Finish_Descriptor(const int128u DescriptorUID, const int1
         }
     }
 
+    Streams_Finish_Descriptor(Descriptor);
+    auto StreamKind_Last_Sav=StreamKind_Last;
+    auto StreamPos_Last_Sav=StreamPos_Last;
+    auto ID_Sav=Ztring::ToZtring(Descriptor->second.LinkedTrackID);
+    for (size_t StreamKind=Stream_Text; StreamKind<Stream_Max; StreamKind++)
+        for (size_t StreamPos=0; StreamPos<Count_Get((stream_t)StreamKind); StreamPos++)
+        {
+            if (StreamKind==StreamKind_Last_Sav && StreamPos==StreamPos_Last_Sav)
+                continue;
+            auto ID=Retrieve_Const((stream_t)StreamKind, StreamPos, General_ID);
+            size_t ID_SubStreamInfo_Pos=ID.find(__T('-'));
+            if (ID_SubStreamInfo_Pos!=string::npos)
+            {
+                ID.resize(ID_SubStreamInfo_Pos);
+            }
+            if (ID==ID_Sav)
+            {
+                if (Descriptor->second.StreamKind==Stream_Video)
+                {
+                    Fill((stream_t)StreamKind, StreamPos, General_StreamOrder, Retrieve_Const(Stream_Video, 0, General_StreamOrder));
+                    continue;
+                }
+                if (Descriptor->second.StreamKind==Stream_Audio) //TODO: handle correctly when ID is same in different tracks
+                {
+                    continue;
+                }
+                StreamKind_Last=(stream_t)StreamKind;
+                StreamPos_Last=StreamPos;
+                Streams_Finish_Descriptor(Descriptor);
+            }
+        }
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::Streams_Finish_Descriptor(descriptors::iterator Descriptor)
+{
+    size_t Before_Count[Stream_Max];
+    for (size_t Pos=0; Pos<Stream_Max; Pos++)
+        Before_Count[Pos]=(size_t)-1;
+    Before_Count[Stream_Video]=Count_Get(Stream_Video);
+    Before_Count[Stream_Audio]=Count_Get(Stream_Audio);
+    Before_Count[Stream_Text]=Count_Get(Stream_Text);
+
     if (StreamKind_Last!=Stream_Max && StreamPos_Last!=(size_t)-1)
     {
         //Handling buggy files
@@ -3577,36 +3456,46 @@ void File_Mxf::Streams_Finish_Descriptor(const int128u DescriptorUID, const int1
         std::map<std::string, Ztring>::iterator Info_MasteringDisplay_WhitePointChromaticity = Descriptor->second.Infos.find("MasteringDisplay_WhitePointChromaticity");
         std::map<std::string, Ztring>::iterator MasteringDisplay_Luminance_Max = Descriptor->second.Infos.find("MasteringDisplay_Luminance_Max");
         std::map<std::string, Ztring>::iterator MasteringDisplay_Luminance_Min = Descriptor->second.Infos.find("MasteringDisplay_Luminance_Min");
-        if (Info_MasteringDisplay_Primaries!= Descriptor->second.Infos.end() || Info_MasteringDisplay_WhitePointChromaticity!= Descriptor->second.Infos.end())
+        mastering_metadata_2086 MasteringMeta;
+        memset(&MasteringMeta, 0xFF, sizeof(MasteringMeta));
+        if (Info_MasteringDisplay_Primaries!= Descriptor->second.Infos.end())
         {
-            Ztring MasteringDisplay_ColorPrimaries;
-            if (Info_MasteringDisplay_Primaries!= Descriptor->second.Infos.end())
+            ZtringList Primaries (Info_MasteringDisplay_Primaries->second);
+            if (Primaries.size() == 6)
             {
-                MasteringDisplay_ColorPrimaries=Info_MasteringDisplay_Primaries->second;
-                if (Info_MasteringDisplay_WhitePointChromaticity!= Descriptor->second.Infos.end())
-                    MasteringDisplay_ColorPrimaries+=__T(", White point: ")+Info_MasteringDisplay_WhitePointChromaticity->second;
+                MasteringMeta.Primaries[0] = Primaries[0].To_int16u();
+                MasteringMeta.Primaries[1] = Primaries[1].To_int16u();
+                MasteringMeta.Primaries[2] = Primaries[2].To_int16u();
+                MasteringMeta.Primaries[3] = Primaries[3].To_int16u();
+                MasteringMeta.Primaries[4] = Primaries[4].To_int16u();
+                MasteringMeta.Primaries[5] = Primaries[5].To_int16u();
             }
-            else
-                    MasteringDisplay_ColorPrimaries=__T("White point: ")+Info_MasteringDisplay_WhitePointChromaticity->second;
-
-            if (MasteringDisplay_ColorPrimaries==__T("R: x=0.640000 y=0.330000, G: x=0.300000 y=0.600000, B: x=0.150000 y=0.060000, White point: x=0.312700 y=0.329000")) MasteringDisplay_ColorPrimaries=__T("BT.709");
-            if (MasteringDisplay_ColorPrimaries==__T("R: x=0.708000 y=0.292000, G: x=0.170000 y=0.797000, B: x=0.131000 y=0.046000, White point: x=0.312700 y=0.329000")) MasteringDisplay_ColorPrimaries=__T("BT.2020");
-            if (MasteringDisplay_ColorPrimaries==__T("R: x=0.680000 y=0.320000, G: x=0.265000 y=0.690000, B: x=0.150000 y=0.060000, White point: x=0.312700 y=0.329000")) MasteringDisplay_ColorPrimaries=__T("Display P3");
-
-            Descriptor->second.Infos["MasteringDisplay_ColorPrimaries"]=MasteringDisplay_ColorPrimaries;
         }
-        if (MasteringDisplay_Luminance_Max!=Descriptor->second.Infos.end() || MasteringDisplay_Luminance_Min!=Descriptor->second.Infos.end())
+        if (Info_MasteringDisplay_WhitePointChromaticity!= Descriptor->second.Infos.end())
         {
-            Ztring MasteringDisplay_Luminance;
-            if (MasteringDisplay_Luminance_Min!=Descriptor->second.Infos.end())
+            ZtringList WhitePoint (Info_MasteringDisplay_WhitePointChromaticity->second);
+            if (WhitePoint.size() == 2)
             {
-                MasteringDisplay_Luminance=__T("min: ")+MasteringDisplay_Luminance_Min->second+__T(" cd/m2");
-                if (MasteringDisplay_Luminance_Max!=Descriptor->second.Infos.end())
-                    MasteringDisplay_Luminance+=__T(", max: ")+ MasteringDisplay_Luminance_Max->second+__T(" cd/m2");;
+                MasteringMeta.Primaries[6] = WhitePoint[0].To_int16u();
+                MasteringMeta.Primaries[7] = WhitePoint[1].To_int16u();
             }
-            else
-                    MasteringDisplay_Luminance=__T("max: ")+MasteringDisplay_Luminance_Max->second;
-
+        }
+        if (MasteringDisplay_Luminance_Min!=Descriptor->second.Infos.end())
+        {
+            MasteringMeta.Luminance[0] = MasteringDisplay_Luminance_Min->second.To_int32u();
+        }
+        if (MasteringDisplay_Luminance_Max!=Descriptor->second.Infos.end())
+        {
+            MasteringMeta.Luminance[1] = MasteringDisplay_Luminance_Max->second.To_int32u();
+        }
+        Ztring MasteringDisplay_ColorPrimaries;
+        Ztring MasteringDisplay_Luminance;
+        Get_MasteringDisplayColorVolume(MasteringDisplay_ColorPrimaries, MasteringDisplay_Luminance, MasteringMeta);
+        if (!MasteringDisplay_ColorPrimaries.empty())
+        {
+            Descriptor->second.Infos["HDR_Format"]="SMPTE ST 2086";
+            Descriptor->second.Infos["HDR_Format_Compatibility"]="HDR10";
+            Descriptor->second.Infos["MasteringDisplay_ColorPrimaries"]=MasteringDisplay_ColorPrimaries;
             Descriptor->second.Infos["MasteringDisplay_Luminance"]=MasteringDisplay_Luminance;
         }
 
@@ -3653,7 +3542,10 @@ void File_Mxf::Streams_Finish_Descriptor(const int128u DescriptorUID, const int1
                             if (Info->first=="BitRate")
                                 continue; // Not always valid e.g. Dolby E. TODO: check in case of normal check
                             if (Info->first=="StreamOrder")
-                                continue; // Is not useful and has some issues with Dolby E
+                            {
+                                Fill(StreamKind_Last, StreamPos_Last+Pos, Info->first.c_str(), Info->second);
+                                continue;
+                            }
 
                             // Filling both values
                             Fill(StreamKind_Last, StreamPos_Last+Pos, (Info->first+"_Original").c_str(), FromEssence); //TODO: use the generic engine by filling descriptor info before merging essence info
@@ -3792,10 +3684,17 @@ void File_Mxf::Streams_Finish_Descriptor(const int128u DescriptorUID, const int1
         if (StreamKind_Last==Stream_Video && Retrieve(Stream_Video, StreamPos_Last, Video_ScanType_Original).empty())
         {
             //ScanType
-            if (!Descriptor->second.ScanType.empty() && (Descriptor->second.ScanType!=Retrieve(Stream_Video, StreamPos_Last, Video_ScanType) && !(Descriptor->second.Is_Interlaced() && Retrieve(Stream_Video, StreamPos_Last, Video_ScanType)==__T("MBAFF"))))
+            auto ScanType=Descriptor->second.Jp2kContentKind==4?__T("Interlaced"):Descriptor->second.ScanType;
+            if (Retrieve(Stream_Video, StreamPos_Last, Video_ScanType).empty())
+                Fill(Stream_Video, StreamPos_Last, Video_ScanType, ScanType);
+            else if (Descriptor->second.Jp2kContentKind<=1)
+            {
+                // Do not trust frame layout info for JP2k 0 a 1, the jp2k parser needs to decide because all is possible (frame layout interlaced of frame, 1 or 2 codestreams per frame)
+            }
+            else if (!ScanType.empty() && (ScanType!=Retrieve(Stream_Video, StreamPos_Last, Video_ScanType) && !(Descriptor->second.Is_Interlaced() && Retrieve(Stream_Video, StreamPos_Last, Video_ScanType)==__T("MBAFF"))))
             {
                 Fill(Stream_Video, StreamPos_Last, Video_ScanType_Original, Retrieve(Stream_Video, StreamPos_Last, Video_ScanType));
-                Fill(Stream_Video, StreamPos_Last, Video_ScanType, Descriptor->second.ScanType, true);
+                Fill(Stream_Video, StreamPos_Last, Video_ScanType, ScanType, true);
             }
 
             //ScanOrder
@@ -3844,6 +3743,14 @@ void File_Mxf::Streams_Finish_Descriptor(const int128u DescriptorUID, const int1
                 descriptors::iterator SubDescriptor=Descriptors.find(Descriptor->second.SubDescriptors[Pos]);
                 if (SubDescriptor!=Descriptors.end())
                 {
+                    if (SubDescriptor->second.LinkedTrackID!=(int32u)-1)
+                    {
+                        //This is not a real subdescriptor, rather a descriptor for another track. Seen in a PHDR track
+                        if (SubDescriptor->second.LinkedTrackID!=Descriptor->second.LinkedTrackID) // TODO: better method for avoiding loop
+                            Streams_Finish_Descriptor(SubDescriptor->first, int128u());
+                        continue;
+                    }
+
                     switch (SubDescriptor->second.Type)
                     {
                         case descriptor::Type_AudioChannelLabelSubDescriptor:
@@ -3882,26 +3789,37 @@ void File_Mxf::Streams_Finish_Descriptor(const int128u DescriptorUID, const int1
                     }
 
                     //Special cases
-                    std::map<std::string, Ztring>::iterator Info_Level=SubDescriptor->second.Infos.find("Temp_AVC_Format_Level");
-                    std::map<std::string, Ztring>::iterator Info_constraint=SubDescriptor->second.Infos.find("Temp_AVC_constraint_set3_flag");
-                    if (Info_Level!=SubDescriptor->second.Infos.end() || Info_constraint!=SubDescriptor->second.Infos.end())
+                    std::map<std::string, Ztring>::iterator Info_AvcProfile=SubDescriptor->second.Infos.find("Temp_AVC_Profile");
+                    std::map<std::string, Ztring>::iterator Info_AvcLevel=SubDescriptor->second.Infos.find("Temp_AVC_Level");
+                    std::map<std::string, Ztring>::iterator Info_AvcConstraintSet=SubDescriptor->second.Infos.find("Temp_AVC_constraint_set");
+                    if (Info_AvcProfile!=SubDescriptor->second.Infos.end() || Info_AvcLevel!=SubDescriptor->second.Infos.end() || Info_AvcConstraintSet!=SubDescriptor->second.Infos.end())
                     {
                         //AVC Descriptor creates that, adapting
-                        std::map<std::string, Ztring>::iterator Info_Profile=SubDescriptor->second.Infos.find("Format_Profile");
-                        if (Info_Profile!=SubDescriptor->second.Infos.end())
+                        int8u profile_idc;
+                        if (Info_AvcProfile!=SubDescriptor->second.Infos.end())
                         {
-                            if (Info_constraint!=SubDescriptor->second.Infos.end())
-                            {
-                                if (Info_constraint->second==__T("1"))
-                                    Info_Profile->second+=__T(" Intra");
-                                SubDescriptor->second.Infos.erase(Info_constraint);
-                            }
-                            if (Info_Level!=SubDescriptor->second.Infos.end())
-                            {
-                                Info_Profile->second+=__T("@L")+Info_Level->second;
-                                SubDescriptor->second.Infos.erase(Info_Level);
-                            }
+                            profile_idc=Info_AvcProfile->second.To_int8u();
+                            SubDescriptor->second.Infos.erase(Info_AvcProfile);
                         }
+                        else
+                            profile_idc=0;
+                        int8u level_idc;
+                        if (Info_AvcLevel!=SubDescriptor->second.Infos.end())
+                        {
+                            level_idc=Info_AvcLevel->second.To_int8u();
+                            SubDescriptor->second.Infos.erase(Info_AvcLevel);
+                        }
+                        else
+                            level_idc=0;
+                        int8u constraint_set_flags;
+                        if (Info_AvcConstraintSet!=SubDescriptor->second.Infos.end())
+                        {
+                            constraint_set_flags=Info_AvcConstraintSet->second.To_int8u();
+                            SubDescriptor->second.Infos.erase(Info_AvcConstraintSet);
+                        }
+                        else
+                            constraint_set_flags=0;
+                        SubDescriptor->second.Infos["Format_Profile"].From_UTF8(Avc_profile_level_string(profile_idc, level_idc, constraint_set_flags));
                     }
                     
                     for (std::map<std::string, Ztring>::iterator Info=SubDescriptor->second.Infos.begin(); Info!=SubDescriptor->second.Infos.end(); ++Info)
@@ -3928,6 +3846,14 @@ void File_Mxf::Streams_Finish_Descriptor(const int128u DescriptorUID, const int1
         }
         if (!ChannelAssignment.empty())
             Fill(Stream_Audio, StreamPos_Last, Audio_ChannelLayoutID, ChannelAssignment);
+
+        auto CodecID_Addition = Descriptor->second.Infos.find("CodecID");
+        if (CodecID_Addition != Descriptor->second.Infos.end()) {
+            Ztring CodecID = Retrieve_Const(StreamKind_Last, StreamPos_Last, CodecID_Addition->first.c_str());
+            if (CodecID != CodecID_Addition->second) {
+                Fill(StreamKind_Last, StreamPos_Last, CodecID_Addition->first.c_str(), CodecID+__T('-')+CodecID_Addition->second, true);
+            }
+        }
     }
 
     //Fallback on partition data if classic methods failed
@@ -3973,13 +3899,13 @@ void File_Mxf::Streams_Finish_CommercialNames ()
             Fill(Stream_General, 0, General_Format_Commercial_IfAny, "DV");
             Fill(Stream_General, 0, General_Format_Commercial, "MXF DV");
         }
-        else if (Retrieve(Stream_Video, 0, Video_Format)==__T("AVC") && Retrieve(Stream_Video, 0, Video_Format_Settings_GOP)==__T("N=1") && Retrieve(Stream_Video, 0, Video_ChromaSubsampling)==__T("4:2:0") && Retrieve(Stream_Video, 0, Video_BitRate)==__T("56064000"))
+        else if (Retrieve(Stream_Video, 0, Video_Format)==__T("AVC") && Retrieve(Stream_Video, 0, Video_Format_Settings_GOP)==__T("N=1") && Retrieve(Stream_Video, 0, Video_ChromaSubsampling)==__T("4:2:0") && Retrieve(Stream_Video, 0, Video_Format_Settings_SliceCount)==__T("10") && Retrieve(Stream_Video, 0, Video_BitRate)==__T("56064000"))
         {
             Fill(Stream_General, 0, General_Format_Commercial_IfAny, "AVC-Intra 50");
             Fill(Stream_General, 0, General_Format_Commercial, "MXF AVC-Intra 50");
             Fill(Stream_Video, 0, Video_Format_Commercial_IfAny, "AVC-Intra 50");
         }
-        else if (Retrieve(Stream_Video, 0, Video_Format)==__T("AVC") && Retrieve(Stream_Video, 0, Video_Format_Settings_GOP)==__T("N=1") && Retrieve(Stream_Video, 0, Video_ChromaSubsampling)==__T("4:2:2") && Retrieve(Stream_Video, 0, Video_BitRate)==__T("113664000"))
+        else if (Retrieve(Stream_Video, 0, Video_Format)==__T("AVC") && Retrieve(Stream_Video, 0, Video_Format_Settings_GOP)==__T("N=1") && Retrieve(Stream_Video, 0, Video_ChromaSubsampling)==__T("4:2:2") && Retrieve(Stream_Video, 0, Video_Format_Settings_SliceCount)==__T("10") && Retrieve(Stream_Video, 0, Video_BitRate)==__T("113664000"))
         {
             Fill(Stream_General, 0, General_Format_Commercial_IfAny, "AVC-Intra 100");
             Fill(Stream_General, 0, General_Format_Commercial, "MXF AVC-Intra 100");
@@ -4048,6 +3974,8 @@ void File_Mxf::Streams_Finish_Component(const int128u ComponentUID, float64 Edit
                 FrameCount=File_IgnoreEditsBefore;
             FrameCount-=File_IgnoreEditsBefore;
         }
+        if (StreamPos_Last==(size_t)-1 && Count_Get(StreamKind_Last)==1)
+            StreamPos_Last=0; // TODO: remove this hack
         Fill(StreamKind_Last, StreamPos_Last, Fill_Parameter(StreamKind_Last, Generic_Duration), FrameCount*1000/EditRate, 0, true);
         size_t ID_SubStreamInfo_Pos=Retrieve(StreamKind_Last, StreamPos_Last, General_ID).find(__T('-'));
         if (ID_SubStreamInfo_Pos!=string::npos)
@@ -4070,7 +3998,10 @@ void File_Mxf::Streams_Finish_Component(const int128u ComponentUID, float64 Edit
                 if (Essence->second.StreamKind==Stream_Video && Essence->second.StreamPos-(StreamPos_StartAtZero[Essence->second.StreamKind]?0:1)==StreamPos_Last)
                 {
                     if (Essence->second.Field_Count_InThisBlock_1 && !Essence->second.Field_Count_InThisBlock_2)
+                    {
                         FrameCount/=2;
+                        EditRate/=2;
+                    }
                     break;
                 }
 
@@ -4130,17 +4061,17 @@ void File_Mxf::Streams_Finish_Component_ForTimeCode(const int128u ComponentUID, 
         if (Component2!=Components.end() && Component2->second.MxfTimeCode.StartTimecode!=(int64u)-1 && !Config->File_IsReferenced_Get())
         {
             //Note: Origin is not part of the StartTimecode for the first frame in the source package. From specs: "For a Timecode Track with a single Timecode Component and with origin N, where N greater than 0, the timecode value at the Zero Point of the Track equals the start timecode of the Timecode Component incremented by N units."
-            TimeCode TC(Component2->second.MxfTimeCode.StartTimecode+Config->File_IgnoreEditsBefore, (int8u)Component2->second.MxfTimeCode.RoundedTimecodeBase, Component2->second.MxfTimeCode.DropFrame);
+            TimeCode TC=Component2->second.MxfTimeCode.RoundedTimecodeBase<0x8000?TimeCode((int64_t)(Component2->second.MxfTimeCode.StartTimecode+Config->File_IgnoreEditsBefore), Component2->second.MxfTimeCode.RoundedTimecodeBase-1, TimeCode::DropFrame(Component2->second.MxfTimeCode.DropFrame).FPS1001(Component2->second.MxfTimeCode.DropFrame)):TimeCode();
             bool IsHybridTimeCode=false;
             if (Component->second.StructuralComponents.size()==2 && !Pos)
             {
                 components::iterator Component_TC2=Components.find(Component->second.StructuralComponents[1]);
                 if (Component_TC2!=Components.end() && Component_TC2->second.MxfTimeCode.StartTimecode!=(int64u)-1)
                 {
-                    TimeCode TC2(Component_TC2->second.MxfTimeCode.StartTimecode+Config->File_IgnoreEditsBefore, (int8u)Component_TC2->second.MxfTimeCode.RoundedTimecodeBase, Component2->second.MxfTimeCode.DropFrame);
+                    TimeCode TC2=Component_TC2->second.MxfTimeCode.RoundedTimecodeBase<0x8000?TimeCode((int64_t)(Component_TC2->second.MxfTimeCode.StartTimecode+Config->File_IgnoreEditsBefore), Component_TC2->second.MxfTimeCode.RoundedTimecodeBase-1, TimeCode::DropFrame(Component2->second.MxfTimeCode.DropFrame).FPS1001(Component2->second.MxfTimeCode.DropFrame)):TimeCode();
                     if (TC2.ToFrames()-TC.ToFrames()==2)
                     {
-                        TC++;
+                        ++TC;
                         IsHybridTimeCode=true;
                     }
                 }
@@ -4149,11 +4080,39 @@ void File_Mxf::Streams_Finish_Component_ForTimeCode(const int128u ComponentUID, 
             Fill(Stream_Other, StreamPos_Last, Other_ID, Ztring::ToZtring(TrackID)+(IsSourcePackage?__T("-Source"):__T("-Material")));
             Fill(Stream_Other, StreamPos_Last, Other_Type, "Time code");
             Fill(Stream_Other, StreamPos_Last, Other_Format, "MXF TC");
+
+            #if MEDIAINFO_ADVANCED
+                if (Config->TimeCode_Dumps)
+                {
+                    auto id=Ztring(Ztring::ToZtring(TrackID)+(IsSourcePackage?__T("-Source"):__T("-Material"))).To_UTF8();
+                    auto& TimeCode_Dump=(*Config->TimeCode_Dumps)[id];
+                    if (TimeCode_Dump.Attributes_First.empty())
+                    {
+                        TimeCode_Dump.Attributes_First+=" id=\""+id+"\" format=\"smpte-st377\" frame_rate=\""+to_string(Component2->second.MxfTimeCode.RoundedTimecodeBase);
+                        if (Component2->second.MxfTimeCode.DropFrame)
+                            TimeCode_Dump.Attributes_First+=+"000/1001";
+                        TimeCode_Dump.Attributes_First+='\"';
+                        TimeCode_Dump.FrameCount=Component2->second.Duration;
+                        TimeCode_Dump.Attributes_Last+=" start_tc=\""+TimeCode((int64_t)Component2->second.MxfTimeCode.StartTimecode, Component2->second.MxfTimeCode.RoundedTimecodeBase-1, TimeCode::DropFrame(Component2->second.MxfTimeCode.DropFrame).FPS1001(Component2->second.MxfTimeCode.DropFrame)).ToString() + '\"';
+                    }
+                }
+            #endif //MEDIAINFO_ADVANCED
+
             if (Component2->second.MxfTimeCode.RoundedTimecodeBase<=(int8u)-1) // Found files with RoundedTimecodeBase of 0x8000
-                Fill(Stream_Other, StreamPos_Last, Other_FrameRate, Component2->second.MxfTimeCode.RoundedTimecodeBase/(Component2->second.MxfTimeCode.DropFrame?1.001:1.000));
+                Fill(Stream_Other, StreamPos_Last, Other_FrameRate, Component2->second.MxfTimeCode.RoundedTimecodeBase/(Is1001?1.001:1.000));
+            TC.Set1001fps(Is1001);
             Fill(Stream_Other, StreamPos_Last, Other_TimeCode_FirstFrame, TC.ToString().c_str());
+            if (Component2->second.Duration && Component2->second.Duration!=(int64u)-1)
+            {
+                Fill(Stream_Other, StreamPos_Last, Other_FrameCount, Component2->second.Duration);
+                if (TC.GetFramesMax())
+                {
+                    TC+=Component2->second.Duration-1;
+                    Fill(Stream_Other, StreamPos_Last, Other_TimeCode_LastFrame, TC.ToString().c_str());
+                }
+            }
             Fill(Stream_Other, StreamPos_Last, Other_TimeCode_Settings, IsSourcePackage?__T("Source Package"):__T("Material Package"));
-            Fill(Stream_Other, StreamPos_Last, Other_TimeCode_Striped, "Yes");
+            Fill(Stream_Other, StreamPos_Last, Other_TimeCode_Stripped, "Yes");
             Fill(Stream_Other, StreamPos_Last, Other_Title, TrackName);
 
             if ((!TimeCodeFromMaterialPackage && IsSourcePackage) || (TimeCodeFromMaterialPackage && !IsSourcePackage))
@@ -4229,10 +4188,10 @@ void File_Mxf::Streams_Finish_Component_ForAS11(const int128u ComponentUID, floa
     for (size_t Pos=0; Pos<Component->second.StructuralComponents.size(); Pos++)
     {
         // AS-11
-        dmsegments::iterator DMSegment=DMSegments.find(Component->second.StructuralComponents[Pos]);
-        if (DMSegment!=DMSegments.end())
+        dmsegments::iterator DescriptiveMarker=DescriptiveMarkers.find(Component->second.StructuralComponents[Pos]);
+        if (DescriptiveMarker!=DescriptiveMarkers.end())
         {
-            as11s::iterator AS11=AS11s.find(DMSegment->second.Framework);
+            as11s::iterator AS11=AS11s.find(DescriptiveMarker->second.Framework);
             if (AS11!=AS11s.end())
             {
                 if (StreamKind_Last==Stream_Max)
@@ -4297,15 +4256,15 @@ void File_Mxf::Streams_Finish_Component_ForAS11(const int128u ComponentUID, floa
                                                     if (AS11->second.PartNumber!=(int16u)-1 && AS11->second.PartTotal!=(int16u)-1)
                                                     {
                                                         string S;
-                                                        S+=TimeCode(TC_Temp+Duration_CurrentPos, FrameRate_TempI, DropFrame_Temp).ToString();
-                                                        if (DMSegment->second.Duration!=(int64u)-1)
+                                                        S+=TimeCode((int64_t)(TC_Temp+Duration_CurrentPos), FrameRate_TempI-1, TimeCode::DropFrame(DropFrame_Temp).FPS1001(DropFrame_Temp)).ToString();
+                                                        if (DescriptiveMarker->second.Duration!=(int64u)-1)
                                                         {
                                                             S+=" + ";
-                                                            S+=TimeCode(DMSegment->second.Duration, FrameRate_TempI, DropFrame_Temp).ToString();
+                                                            S+=TimeCode((int64_t)DescriptiveMarker->second.Duration, FrameRate_TempI-1, TimeCode::DropFrame(DropFrame_Temp).FPS1001(DropFrame_Temp)).ToString();
                                                             S+=" = ";
-                                                            Duration_CurrentPos+=DMSegment->second.Duration;
-                                                            S+=TimeCode(TC_Temp+Duration_CurrentPos, FrameRate_TempI, DropFrame_Temp).ToString();
-                                                            Duration_Programme+=DMSegment->second.Duration;
+                                                            Duration_CurrentPos+=DescriptiveMarker->second.Duration;
+                                                            S+=TimeCode((int64_t)(TC_Temp+Duration_CurrentPos), FrameRate_TempI-1, TimeCode::DropFrame(DropFrame_Temp).FPS1001(DropFrame_Temp)).ToString();
+                                                            Duration_Programme+=DescriptiveMarker->second.Duration;
                                                         }
                                                         Fill(Stream_Other, StreamPos_Last, Ztring::ToZtring(AS11->second.PartNumber).To_UTF8().c_str(), S);
                                                     }
@@ -4329,7 +4288,7 @@ void File_Mxf::Streams_Finish_Component_ForAS11(const int128u ComponentUID, floa
                                                         Fill(Stream_Other, StreamPos_Last, "3DType", Mxf_AS11_3D_Type[AS11->second.ThreeDType]);
                                                     if (AS11->second.ProductPlacement!=(int8u)-1)
                                                         Fill(Stream_Other, StreamPos_Last, "ProductPlacement", AS11->second.ProductPlacement?__T("Yes"):__T("No"));
-                                                    if (AS11->second.ThreeDType<Mxf_AS11_FpaPass_Count)
+                                                    if (AS11->second.FpaPass<Mxf_AS11_FpaPass_Count)
                                                         Fill(Stream_Other, StreamPos_Last, "FpaPass", Mxf_AS11_FpaPass[AS11->second.FpaPass]);
                                                     Fill(Stream_Other, StreamPos_Last, "FpaManufacturer", AS11->second.FpaManufacturer);
                                                     Fill(Stream_Other, StreamPos_Last, "FpaVersion", AS11->second.FpaVersion);
@@ -4342,13 +4301,13 @@ void File_Mxf::Streams_Finish_Component_ForAS11(const int128u ComponentUID, floa
                                                         Fill(Stream_Other, StreamPos_Last, "AudioLoudnessStandard", Mxf_AS11_AudioLoudnessStandard[AS11->second.AudioLoudnessStandard]);
                                                     Fill(Stream_Other, StreamPos_Last, "AudioComments", AS11->second.AudioComments);
                                                     if (AS11->second.LineUpStart!=(int64u)-1)
-                                                        Fill(Stream_Other, StreamPos_Last, "LineUpStart", Ztring().From_UTF8(TimeCode(TC_Temp+AS11->second.LineUpStart, FrameRate_TempI, DropFrame_Temp).ToString()));
+                                                        Fill(Stream_Other, StreamPos_Last, "LineUpStart", Ztring().From_UTF8(TimeCode((int64_t)(TC_Temp+AS11->second.LineUpStart), FrameRate_TempI-1, TimeCode::DropFrame(DropFrame_Temp).FPS1001(DropFrame_Temp)).ToString()));
                                                     if (AS11->second.IdentClockStart!=(int64u)-1)
-                                                        Fill(Stream_Other, StreamPos_Last, "IdentClockStart", Ztring().From_UTF8(TimeCode(TC_Temp+AS11->second.IdentClockStart, FrameRate_TempI, DropFrame_Temp).ToString()));
+                                                        Fill(Stream_Other, StreamPos_Last, "IdentClockStart", Ztring().From_UTF8(TimeCode((int64_t)(TC_Temp+AS11->second.IdentClockStart), FrameRate_TempI-1, TimeCode::DropFrame(DropFrame_Temp).FPS1001(DropFrame_Temp)).ToString()));
                                                     if (AS11->second.TotalNumberOfParts!=(int16u)-1)
                                                         Fill(Stream_Other, StreamPos_Last, "TotalNumberOfParts", AS11->second.TotalNumberOfParts);
                                                     if (AS11->second.TotalProgrammeDuration!=(int64u)-1)
-                                                        Fill(Stream_Other, StreamPos_Last, "TotalProgrammeDuration", Ztring().From_UTF8(TimeCode(AS11->second.TotalProgrammeDuration, FrameRate_TempI, DropFrame_Temp).ToString()));
+                                                        Fill(Stream_Other, StreamPos_Last, "TotalProgrammeDuration", Ztring().From_UTF8(TimeCode((int64_t)AS11->second.TotalProgrammeDuration, FrameRate_TempI-1, TimeCode::DropFrame(DropFrame_Temp).FPS1001(DropFrame_Temp)).ToString()));
                                                     if (AS11->second.AudioDescriptionPresent!=(int8u)-1)
                                                         Fill(Stream_Other, StreamPos_Last, "AudioDescriptionPresent", AS11->second.AudioDescriptionPresent?__T("Yes"):__T("No"));
                                                     if (AS11->second.AudioDescriptionType<Mxf_AS11_AudioDescriptionType_Count)
@@ -4375,12 +4334,12 @@ void File_Mxf::Streams_Finish_Component_ForAS11(const int128u ComponentUID, floa
                     default: ;
                 }
             }
-            else if (DMSegment->second.IsAs11SegmentFiller && DMSegment->second.Duration!=(int64u)-1)
-                Duration_CurrentPos+=DMSegment->second.Duration;
+            else if (DescriptiveMarker->second.IsAs11SegmentFiller && DescriptiveMarker->second.Duration!=(int64u)-1)
+                Duration_CurrentPos+=DescriptiveMarker->second.Duration;
         }
     }
     if (Duration_Programme)
-        Fill(Stream_Other, StreamPos_Last, "TotalProgrammeDuration", TimeCode(Duration_Programme, FrameRate_TempI, DropFrame_Temp).ToString());
+        Fill(Stream_Other, StreamPos_Last, "TotalProgrammeDuration", TimeCode((int64_t)Duration_Programme, FrameRate_TempI-1, TimeCode::DropFrame(DropFrame_Temp).FPS1001(DropFrame_Temp)).ToString());
 }
 
 //---------------------------------------------------------------------------
@@ -4468,6 +4427,32 @@ void File_Mxf::Read_Buffer_Continue()
     #endif //MEDIAINFO_DEMUX
 
     Read_Buffer_CheckFileModifications();
+
+    if (IsRtmd)
+    {
+        Synched=false;
+        if (Buffer_Size>=18)
+        {
+            Skip_XX(13,                                         "Unknown");
+            Element_Begin1("Time code");
+                int8u HH, MM, SS, Drop, FF;
+                Get_B1(HH,                                      "HH");
+                Get_B1(MM,                                      "MM");
+                Get_B1(SS,                                      "SS");
+                Get_B1(Drop,                                    "Drop");
+                Get_B1(FF,                                      "SS");
+                TimeCode TC(HH, MM, SS, FF, FF<=99?99:255, TimeCode::flags().DropFrame(Drop));
+                Element_Info1(TC.ToString());
+                if (!Frame_Count_NotParsedIncluded)
+                {
+                    Accept();
+                    Stream_Prepare(Stream_Other);
+                    Fill(Stream_Other, 0, Other_Format, "Sony Real Time Metadata");
+                    Fill(Stream_Other, 0, Other_TimeCode_FirstFrame, TC.ToString());
+                }
+            Element_End0();
+        }
+    }
 
     if (IsSearchingFooterPartitionAddress)
     {
@@ -4561,7 +4546,7 @@ void File_Mxf::Read_Buffer_Continue()
                         return;
                     }
 
-                    Fill(Stream_General, 0, "IsTruncated", "Yes", Unlimited, true, true);
+                    IsTruncated(File_Offset+17+Size, true, "MXF");
                 }
             }
         }
@@ -4740,6 +4725,15 @@ void File_Mxf::Read_Buffer_AfterParsing()
         //Checking if we want to seek again
         if (File_GoTo==(int64u)-1)
             GoToFromEnd(0);
+    }
+
+    if (IsSub)
+    {
+        Frame_Count++;
+        if (Frame_Count_NotParsedIncluded!=(int64u)-1)
+            Frame_Count_NotParsedIncluded++;
+        if (!Status[IsFilled] && (Config->ParseSpeed<=0 || IsRtmd))
+            Fill();
     }
 }
 
@@ -4948,7 +4942,7 @@ void File_Mxf::Read_Buffer_Unsynched()
 #if (MEDIAINFO_DEMUX || MEDIAINFO_SEEK) && defined(MEDIAINFO_FILE_YES)
 bool File_Mxf::DetectDuration ()
 {
-    if (Duration_Detected)
+    if (Config->ParseSpeed<=0 || Duration_Detected)
         return false;
 
     MediaInfo_Internal MI;
@@ -5175,7 +5169,7 @@ size_t File_Mxf::Read_Buffer_Seek (size_t Method, int64u Value, int64u ID)
                         }
                         Value=float64_int64s(((float64)Value)/1000000000*Descriptor->second.SampleRate);
                         }
-                    //No break;
+                    [[fallthrough]];
         case 3  :   //FrameNumber
                     Value+=Config->File_IgnoreEditsBefore;
 
@@ -5714,8 +5708,7 @@ void File_Mxf::Header_Parse()
         return;
 
     if (Length==0
-     && ((int32u)Code.hi)==Elements::GenericContainer_Aaf2
-     && (((int32u)(Code.lo>>32))==Elements::GenericContainer_Aaf3 || ((int32u)(Code.lo>>32))==Elements::GenericContainer_Avid3)
+     && (((int32u)Code.hi)>>8)==0x010201
      && Retrieve(Stream_General, 0, General_Format_Settings).find(__T(" / Incomplete"))!=string::npos
      )
     {
@@ -5760,19 +5753,51 @@ void File_Mxf::Header_Parse()
     }
 
     //Filling
-    int32u Code_Compare1=Code.hi>>32;
-    int32u Code_Compare2=(int32u)Code.hi;
     int32u Code_Compare3=Code.lo>>32;
-    int32u Code_Compare4=(int32u)Code.lo;
-    if (Code_Compare1==Elements::Filler011
-     && (Code_Compare2&0xFFFFFF00)==(Elements::Filler012&0xFFFFFF00)
-     && Code_Compare3==Elements::Filler013)
+    bool IsFiller=(Code.hi>>24)==0x060E2B3401
+              && (Code.lo==Elements::FillerData || Code.lo==Elements::TerminatingFillerData);
+    if (IsFiller)
         DataMustAlwaysBeComplete=false;
+    if (Config->ParseSpeed<0
+     && !IsParsingEnd
+     && ((!Partitions_Pos
+     && !Partitions.empty()
+     && !Partitions_IsCalculatingHeaderByteCount
+     && File_Offset+Buffer_Offset+(IsFiller?(Element_Offset+Length):0)>=Partitions[Partitions_Pos].PartitionPackByteCount+Partitions[Partitions_Pos].HeaderByteCount)
+     || ((Code.hi>> 8)==0x060E2B34010201LL)
+     || ((Code.hi>>24)==0x060E2B34020501LL
+      && (Code.lo>>16)==(GroupsPacks::BodyPartitionOpenIncomplete>>16))))
+    {
+        if (Config->ParseSpeed<=-1)
+        {
+            Finish();
+            return;
+        }
+        IsParsingEnd=true;
+        if (PartitionMetadata_FooterPartition!=(int64u)-1 && PartitionMetadata_FooterPartition>File_Offset+Buffer_Offset+(size_t)Element_Size)
+        {
+            if (PartitionMetadata_FooterPartition+17<=File_Size)
+            {
+                GoTo(PartitionMetadata_FooterPartition);
+                IsCheckingFooterPartitionAddress=true;
+            }
+            else
+            {
+                GoToFromEnd(4); //For random access table
+                FooterPartitionAddress_Jumped=true;
+            }
+        }
+        else
+        {
+            GoToFromEnd(4); //For random access table
+            FooterPartitionAddress_Jumped=true;
+        }
+        Open_Buffer_Unsynch();
+        return;
+    }
     if (Partitions_IsCalculatingHeaderByteCount)
     {
-        if (!(Code_Compare1==Elements::Filler011
-           && (Code_Compare2&0xFFFFFF00)==(Elements::Filler012&0xFFFFFF00)
-           && Code_Compare3==Elements::Filler013))
+        if (!IsFiller)
         {
             Partitions_IsCalculatingHeaderByteCount=false;
             if (Partitions_Pos<Partitions.size())
@@ -5781,13 +5806,10 @@ void File_Mxf::Header_Parse()
     }
     if (Partitions_IsCalculatingSdtiByteCount)
     {
-        if (!((Code_Compare1==Elements::SDTI_SystemMetadataPack1
-            && (Code_Compare2&0xFF00FFFF)==(Elements::SDTI_SystemMetadataPack2&0xFF00FFFF) //Independent of Category
-            && Code_Compare3==Elements::SDTI_SystemMetadataPack3
-            && (Code_Compare4&0xFFFF0000)==(Elements::SDTI_SystemMetadataPack4&0xFFFF0000))
-          || ((Code_Compare1==Elements::Filler011
-            && (Code_Compare2&0xFFFFFF00)==(Elements::Filler012&0xFFFFFF00)
-            && Code_Compare3==Elements::Filler013))))
+        if (!(((Code.hi>>24)==0x060E2B3402LL //Independent of Category
+            && (Code.lo>>16)==(Groups::SDTISystemMetadataPack>>16))
+          || (((Code.hi>>24)==0x060E2B3401LL
+            && (Code.lo==Elements::FillerData || Code.lo==Elements::TerminatingFillerData)))))
         {
             if (Partitions_Pos<Partitions.size() && !SDTI_IsInIndexStreamOffset)
                 SDTI_SizePerFrame=File_Offset+Buffer_Offset-(Partitions[Partitions_Pos].StreamOffset+Partitions[Partitions_Pos].PartitionPackByteCount+Partitions[Partitions_Pos].HeaderByteCount);
@@ -5835,12 +5857,10 @@ void File_Mxf::Header_Parse()
 
             if (StreamOffset_Offset<=File_Offset+Buffer_Offset
              && !Partitions_IsFooter
-             && !(Code_Compare1==Elements::OpenIncompleteHeaderPartition1   //Skipping any kind of Partition
-               && Code_Compare2==Elements::OpenIncompleteHeaderPartition2
-               && Code_Compare3==Elements::OpenIncompleteHeaderPartition3)
-             && !(Code_Compare1==Elements::IndexTableSegment1               //Skipping any kind of IndexTableSegment
-               && Code_Compare2==Elements::IndexTableSegment2
-               && Code_Compare3==Elements::IndexTableSegment3))
+             && !((Code.hi>>24)==0x060E2B3402
+               && Code.lo==GroupsPacks::HeaderPartitionOpenIncomplete)
+             && !((Code.hi>>24)==0x060E2B3402
+               && Code.lo==Groups::IndexTableSegment))
             {
                 Buffer_Begin=File_Offset+Buffer_Offset+Element_Offset;
                 Buffer_End=Buffer_Begin+Length;
@@ -5886,173 +5906,148 @@ void File_Mxf::Header_Parse()
 }
 
 //---------------------------------------------------------------------------
+namespace Type
+{
+    int32u Elements = 1;
+    int32u Groups = 2;
+}
+
 void File_Mxf::Data_Parse()
 {
     //Clearing
     InstanceUID=0;
+    if (!Essences_FirstEssence_Parsed)
+    {
+        Frame_Count=(int64u)-1;
+        Frame_Count_NotParsedIncluded=(int64u)-1;
+        FrameInfo=frame_info();
+    }
+
+    if (!Element_IsComplete_Get() && !Buffer_End) {
+        Element_WaitForMoreData();
+        return;
+    }
+
+    #if MEDIAINFO_TRACE
+    if (Trace_Activated) {
+        auto Name = Mxf_Param_Info((int32u)Code.hi, Code.lo);
+        Element_Name(Name ? Name : Ztring().From_UUID(Code).To_UTF8().c_str());
+    }
+    #endif //MEDIAINFO_TRACE
 
     //Parsing
-    int32u Code_Compare1=Code.hi>>32;
-    int32u Code_Compare2=(int32u)Code.hi;
     int32u Code_Compare3=Code.lo>>32;
     int32u Code_Compare4=(int32u)Code.lo;
+    typedef void (File_Mxf::* method_name)();
+
+    auto ManageElement = [&](method_name MethodName) {
+        if (!Element_IsComplete_Get() && Buffer_End) {
+            Skip_XX(Element_Size - Element_Offset, "Data");
+            return;
+        }
+        (this->*MethodName)();
+    };
     #undef ELEMENT
-    #define ELEMENT(_ELEMENT, _NAME) \
-    else if (Code_Compare1==Elements::_ELEMENT##1 \
-     && Code_Compare2==Elements::_ELEMENT##2 \
-     && Code_Compare3==Elements::_ELEMENT##3 \
-     && Code_Compare4==Elements::_ELEMENT##4) \
+    #define ELEMENT(_ELEMENT) \
+    else if (Code.lo==Elements::_ELEMENT) \
     { \
-        if (!Element_IsComplete_Get()) \
-        { \
-            if (Buffer_End==0) \
-            { \
-                Element_WaitForMoreData(); \
-                return; \
-            } \
-            Skip_XX(Element_Size, "Data"); \
-        } \
-        Element_Name(_NAME); \
-        switch (Code_Compare2>>24) \
-        { \
-            case 0x01 : _ELEMENT(); break; \
-            case 0x02 : switch ((int8u)(Code_Compare2>>16)) \
-                        { \
-                            case 0x05 : _ELEMENT(); break; \
-                            case 0x43 : _ELEMENT(); break; \
-                            case 0x53 : \
-                                        while(Element_Offset<Element_Size) \
-                                        { \
-                                            Element_Begin0(); \
-                                            Element_Begin1("Header"); \
-                                                Get_B2 (Code2,                                  "Code"); \
-                                                Get_B2 (Length2,                                "Length"); \
-                                            Element_End0(); \
-                                            Element_Name(Ztring().From_CC2(Code2)); \
-                                            \
-                                            int64u End=Element_Offset+Length2; \
-                                            _ELEMENT(); \
-                                            if (Element_Offset<End) \
-                                                Skip_XX(End-Element_Offset,                     "Unknown"); \
-                                            \
-                                            Element_End0(); \
-                                        } \
-                                        break; \
-                            case 0x63 : _ELEMENT(); break; \
-                            default   : Skip_XX(Element_Size,                                   "Unknown"); \
-                        } \
-        } \
+        ManageElement(&File_Mxf::_ELEMENT); \
     } \
 
+    #undef GROUPSTATIC
+    #define GROUPSTATIC(_ELEMENT) \
+    else if (Code.lo==GroupsPacks::_ELEMENT) \
+    { \
+        ManageGroup(&File_Mxf::_ELEMENT); \
+    } \
+
+    auto ManageGroup = [&](method_name MethodName) {
+        switch ((int8u)(Code.hi>>16))         {
+        case 0x05: (this->*MethodName)(); break;
+        case 0x43:
+        case 0x53:
+        case 0x63:
+            while (Element_Offset < Element_Size)
+            {
+                Element_Begin0();
+                Element_Begin1(                                 "Header");
+                switch (((int8u)(Code.hi>>16)) & 0xF0) {
+                case 0x40:
+                {
+                    int8u Code1;
+                    Get_B1(Code1,                               "Code");
+                    Code2 = Code1;
+                }
+                break;
+                default:
+                    Get_B2(Code2,                               "Code");
+                }
+                switch (((int8u)(Code.hi>>16)) & 0xF0) {
+                case 0x60:
+                {
+                    int32u Code4;
+                    Get_B4(Code4,                               "Length");
+                    if (Code4 >> 16) {
+                        Skip_XX(Element_Size - Element_Offset,  "(Unsupported)");
+                    }
+                    Code2 = (int16u)Code4;
+                }
+                break;
+                default:
+                    Get_B2(Length2,                             "Length");
+                }
+                Element_End0();
+                #if MEDIAINFO_TRACE
+                if (Trace_Activated) {
+                    std::map<int16u, int128u>::iterator Primer_Value = Primer_Values.find(Code2);
+                    if (Primer_Value != Primer_Values.end()) {
+                        auto Name = Mxf_Param_Info((int32u)Primer_Value->second.hi, Primer_Value->second.lo);
+                        Element_Name(Name ? Name : Ztring().From_UUID(Primer_Value->second).To_UTF8().c_str());
+                    }
+                    else {
+                        Element_Name(Ztring().From_CC2(Code2).To_UTF8().c_str());
+                    }
+                }
+                #endif //MEDIAINFO_TRACE
+                auto Length2_Max = Element_Size - Element_Offset;
+                if (Length2 > Length2_Max) {
+                    Length2 = Length2_Max;
+                }
+                auto Element_Size_Save = Element_Size;
+                Element_Size = Element_Offset + Length2;
+                (this->*MethodName)();
+                if (Element_Offset < Element_Size) {
+                    Skip_XX(Element_Size - Element_Offset,      "Unknown");
+                }
+                Element_Size = Element_Size_Save;
+                Element_End0();
+            }
+            break;
+        default: Skip_XX(Element_Size - Element_Offset,         "Unknown");
+        }
+        };
+    #undef GROUP
+    #define GROUP(_ELEMENT) \
+    else if (Code.lo==Groups::_ELEMENT) \
+    { \
+        ManageGroup(&File_Mxf::_ELEMENT); \
+    } \
+
+    /*
+    int8u Registry = (int8u)(Code.hi >> 16);
+    if ((Code.hi>>8)==0x060E2B34010201LL && Code.lo==Elements::Dolby_0502010001013) { //Exception, TODO: to be confirmed
+        Code.hi=0x060E2B340101010CLL; // MXFGenericStreamDataElementKey hi
+        Code.lo=Elements::MXFGenericStreamDataElementKey|0x0901000000LL; // With Big-Endian or is a byte-streamm
+        int8u Registry=0x01;
+    }
+    */
+
     //Parsing
-    if (0) {}
-    ELEMENT(Filler01,                                           "Filler")
-    ELEMENT(Filler02,                                           "Padding")
-    ELEMENT(TerminatingFiller,                                  "Terminating Filler")
-    ELEMENT(XmlDocumentText,                                    "XML Document Text")
-    ELEMENT(SubDescriptors,                                     "Sub Descriptors")
-    ELEMENT(LensUnitMetadata,                                   "Lens Unit Metadata")
-    ELEMENT(CameraUnitMetadata,                                 "Camera Unit Metadata")
-    ELEMENT(UserDefinedAcquisitionMetadata,                     "User Defined Acquisition Metadata")
-    ELEMENT(DMFiller,                                           "Descriptive Metadata Filler")
-    ELEMENT(Sequence,                                           "Sequence")
-    ELEMENT(SourceClip,                                         "Source Clip")
-    ELEMENT(TimecodeComponent,                                  "Timecode Component")
-    ELEMENT(ContentStorage,                                     "Content Storage")
-    ELEMENT(EssenceContainerData,                               "Essence Container Data")
-    ELEMENT(GenericPictureEssenceDescriptor,                    "Generic Picture Essence Descriptor")
-    ELEMENT(CDCIEssenceDescriptor,                              "CDCI Essence Descriptor")
-    ELEMENT(RGBAEssenceDescriptor,                              "RGBA Essence Descriptor")
-    ELEMENT(Preface,                                            "Preface")
-    ELEMENT(Identification,                                     "Identification")
-    ELEMENT(NetworkLocator,                                     "Network Locator")
-    ELEMENT(TextLocator,                                        "Text Locator")
-    ELEMENT(StereoscopicPictureSubDescriptor,                   "Stereoscopic Picture Sub Descriptor")
-    ELEMENT(MaterialPackage,                                    "Material Package")
-    ELEMENT(SourcePackage,                                      "Source Package")
-    ELEMENT(EventTrack,                                         "Event track")
-    ELEMENT(StaticTrack,                                        "Static Track")
-    ELEMENT(TimelineTrack,                                      "Timeline Track")
-    ELEMENT(DMSegment,                                          "Descriptive Metadata Segment")
-    ELEMENT(GenericSoundEssenceDescriptor,                      "Generic Sound Essence Descriptor")
-    ELEMENT(GenericDataEssenceDescriptor,                       "Generic Data Essence Descriptor")
-    ELEMENT(MultipleDescriptor,                                 "Multiple Descriptor")
-    ELEMENT(DMSourceClip,                                       "DM Source Clip")
-    ELEMENT(AES3PCMDescriptor,                                  "AES3 Descriptor")
-    ELEMENT(WaveAudioDescriptor,                                "Wave Audio Descriptor")
-    ELEMENT(MPEG2VideoDescriptor,                               "MPEG-2 Video Descriptor")
-    ELEMENT(JPEG2000PictureSubDescriptor,                       "JPEG 2000 Picture Sub Descriptor")
-    ELEMENT(VbiPacketsDescriptor,                               "VBI Descriptor")
-    ELEMENT(AncPacketsDescriptor,                               "ANC Packets Descriptor")
-    ELEMENT(MpegAudioDescriptor,                                "MPEG Audio Descriptor")
-    ELEMENT(PackageMarkerObject,                                "DM Source Clip")
-    ELEMENT(ApplicationPlugInObject,                            "Application Plug-In Object")
-    ELEMENT(ApplicationReferencedObject,                        "Application Referenced Object")
-    ELEMENT(MCALabelSubDescriptor,                              "MCA Label Sub-Descriptor")
-    ELEMENT(TimedTextDescriptor,                                "Timed Text Descriptor")
-    ELEMENT(TimedTextResourceSubDescriptor,                     "Timed Text Resource Sub-Descriptor")
-    ELEMENT(ContainerConstraintsSubDescriptor,                  "Container Constraints Sub-Descriptor")
-    ELEMENT(Mpeg4VisualSubDescriptor,                           "MPEG-4 Visual Sub-Descriptor")
-    ELEMENT(AudioChannelLabelSubDescriptor,                     "Audio Channel Label Sub-Descriptor")
-    ELEMENT(SoundfieldGroupLabelSubDescriptor,                  "Soundfield Group Label Sub-Descriptor")
-    ELEMENT(GroupOfSoundfieldGroupsLabelSubDescriptor,          "Group Of Soundfield Groups Label Sub-Descriptor")
-    ELEMENT(AVCSubDescriptor,                                   "AVC Sub-Descriptor")
-    ELEMENT(OpenIncompleteHeaderPartition,                      "Open and Incomplete Header Partition Pack")
-    ELEMENT(ClosedIncompleteHeaderPartition,                    "Closed and Incomplete Header Partition Pack")
-    ELEMENT(OpenCompleteHeaderPartition,                        "Open and Complete Header Partition Pack")
-    ELEMENT(ClosedCompleteHeaderPartition,                      "Closed and Complete Header Partition Pack")
-    ELEMENT(OpenIncompleteBodyPartition,                        "Open and Incomplete Body Partition Pack")
-    ELEMENT(ClosedIncompleteBodyPartition,                      "Closed and Incomplete Body Partition Pack")
-    ELEMENT(OpenCompleteBodyPartition,                          "Open and Complete Body Partition Pack")
-    ELEMENT(ClosedCompleteBodyPartition,                        "Closed and Complete Body Partition Pack")
-    ELEMENT(GenericStreamPartition,                             "Generic Stream Partition")
-    ELEMENT(OpenIncompleteFooterPartition,                      "Open and Incomplete Footer Partition Pack")
-    ELEMENT(ClosedIncompleteFooterPartition,                    "Closed and Incomplete Footer Partition Pack")
-    ELEMENT(OpenCompleteFooterPartition,                        "Open and Complete Footer Partition Pack")
-    ELEMENT(ClosedCompleteFooterPartition,                      "Closed and Complete Footer Partition Pack")
-    ELEMENT(Primer,                                             "Primer")
-    ELEMENT(IndexTableSegment,                                  "Index Table (Segment)")
-    ELEMENT(RandomIndexPack,                                    "Random Index Pack")
-    ELEMENT(SDTI_SystemMetadataPack,                            "SDTI System Metadata Pack")
-    else if (Code_Compare1==Elements::SDTI_SystemMetadataPack1
-          && ((Code_Compare2)&0xFF00FFFF)==(Elements::SDTI_SystemMetadataPack2&0xFF00FFFF)
-          && Code_Compare3==Elements::SDTI_SystemMetadataPack3
-          && ((Code_Compare4)&0xFFFF0000)==(Elements::SDTI_SystemMetadataPack4&0xFFFF0000))
+    switch (Code.hi >> 8) {
+    case 0x060E2B34010201LL: {
     {
-        Code_Compare4&=0xFFFFFF00; //Remove MetaData Block Count
-        if (0) {}
-        ELEMENT(SDTI_PackageMetadataSet,                        "SDTI Package Metadata Set")
-        ELEMENT(SDTI_PictureMetadataSet,                        "SDTI Picture Metadata Set")
-        ELEMENT(SDTI_SoundMetadataSet,                          "SDTI Sound Metadata Set")
-        ELEMENT(SDTI_DataMetadataSet,                           "SDTI Data Metadata Set")
-        ELEMENT(SDTI_ControlMetadataSet,                        "SDTI Control Metadata Set")
-    }
-    else if (Code_Compare1==Elements::SystemScheme11
-          && Code_Compare2==Elements::SystemScheme12
-          && Code_Compare3==Elements::SystemScheme13
-          && ((Code_Compare4)&0xFFFF0000)==(Elements::SystemScheme14&0xFFFF0000))
-    {
-        Element_Code=Code.lo;
-        Code_Compare4&=0xFFFF0000; //Remove Metadata or Control Element Identifier + Element Number
-        if (0) {}
-        ELEMENT(SystemScheme1,                                  "SystemScheme1")
-    }
-    ELEMENT(AS11_AAF_Core,                                      "AS-11 core metadata framework")
-    ELEMENT(AS11_AAF_Segmentation,                              "AS-11 segmentation metadata framework")
-    ELEMENT(AS11_AAF_UKDPP,                                     "AS-11 UK DPP metadata framework")
-    ELEMENT(DMScheme1,                                          "Descriptive Metadata Scheme 1") //SMPTE 380M
-    ELEMENT(Application05_09_01,                                "Application05_09_01")
-    ELEMENT(Dolby_PHDRMetadataTrackSubDescriptor,               "Dolby PHDRMetadataTrackSubDescriptor")
-    ELEMENT(Omneon_010201010100,                                "Omneon .01.02.01.01.01.00")
-    ELEMENT(Omneon_010201020100,                                "Omneon .01.02.01.02.01.00")
-    else if (Code_Compare1==Elements::GenericContainer_Aaf1
-          && ((Code_Compare2)&0xFFFFFF00)==(Elements::GenericContainer_Aaf2&0xFFFFFF00)
-          && (Code_Compare3==Elements::GenericContainer_Aaf3
-           || Code_Compare3==Elements::GenericContainer_Avid3
-           || Code_Compare3==Elements::Dolby_PHDRImageMetadataItem3
-           || Code_Compare3==Elements::GenericContainer_Sony3))
-    {
-        Element_Name(Mxf_EssenceElement(Code));
+        auto Name = Mxf_Param_Info((int32u)Code.hi, Code.lo & 0xFFFFFFFFFF00FF00);
+        Element_Name(Name ? Name : "Unknown stream");
 
         //Config
         if (!Essences_FirstEssence_Parsed)
@@ -6079,7 +6074,7 @@ void File_Mxf::Data_Parse()
                 if (SingleDescriptor->second.ByteRate==(int32u)-1)
                 {
                     std::map<std::string, Ztring>::const_iterator i=Descriptors.begin()->second.Infos.find("SamplingRate");
-                    if (i != SingleDescriptor->second.Infos.end())
+                    if (i != Descriptors.begin()->second.Infos.end())
                     {
                         int32u SamplingRate=i->second.To_int32u();
 
@@ -6114,6 +6109,10 @@ void File_Mxf::Data_Parse()
             }
             #endif //MEDIAINFO_DEMUX || MEDIAINFO_SEEK
 
+            Frame_Count=0;
+            Frame_Count_NotParsedIncluded=0;
+            FrameInfo=frame_info();
+            FrameInfo.DTS=0;
             Essences_FirstEssence_Parsed=true;
         }
 
@@ -6125,7 +6124,10 @@ void File_Mxf::Data_Parse()
 
         essences::iterator Essence=Essences.find(Code_Compare4);
         if (Essence==Essences.end())
-            Essence=Essences.insert(make_pair(Code_Compare4,essence())).first;
+        {
+            Essences[Code_Compare4];
+            Essence=Essences.find(Code_Compare4);
+        }
 
         #if MEDIAINFO_TRACE
             if (Trace_Activated)
@@ -6241,14 +6243,16 @@ void File_Mxf::Data_Parse()
                         }
                     }
 
-                    ChooseParser(Essence, Descriptor); //Searching by the descriptor
+                    ChooseParser__FromCodingScheme(Essence, Descriptor); //Searching by the descriptor
                     if (Essence->second.Parsers.empty())
                         ChooseParser__FromEssence(Essence, Descriptor); //Searching by the track identifier
+                    if (Essence->second.Parsers.size()==1 && Descriptor->second.Infos["Format_Settings_Wrapping"].rfind(__T("Frame"), 0)==0 || Essence->second.Infos["Format_Settings_Wrapping"].rfind(__T("Frame"), 0)==0) //TODO: Parsers.size()==1 is for avoiding Dolby E issues, it should be fixed instead
+                        Essence->second.Parsers[0]->FrameIsAlwaysComplete=true;
 
-                    #ifdef MEDIAINFO_VC3_YES
-                        if (Ztring().From_UTF8(Mxf_EssenceContainer(Descriptor->second.EssenceContainer))==__T("VC-3"))
-                            ((File_Vc3*)(*(Essence->second.Parsers.begin())))->FrameRate=Descriptor->second.SampleRate;
-                    #endif //MEDIAINFO_VC3_YES
+                    #ifdef MEDIAINFO_DEMUX
+                        if (Ztring().From_UTF8(Mxf_EssenceContainer(Descriptor->second.EssenceContainer))==__T("AVC"))
+                            Essence->second.ShouldCheckAvcHeaders=File_Avc::AVC_Intra_CodecID_FromMeta(Descriptor->second.Width, Descriptor->second.Height, Descriptor->second.Is_Interlaced()?2:1, 1, (int32u)(float64_int64s(Descriptor->second.SampleRate)), 0);
+                    #endif //MEDIAINFO_DEMUX
                     break;
                 }
             if (!DescriptorFound)
@@ -6256,7 +6260,11 @@ void File_Mxf::Data_Parse()
 
             //Searching by the track identifier
             if (Essence->second.Parsers.empty())
+            {
                 ChooseParser__FromEssence(Essence, Descriptors.end());
+                if (Essence->second.Parsers.size()==1 && Essence->second.Infos["Format_Settings_Wrapping"].rfind(__T("Frame"), 0)==0) //TODO: Parsers.size()==1 is for avoiding Dolby E issues, it should be fixed instead
+                    Essence->second.Parsers[0]->FrameIsAlwaysComplete=true;
+            }
 
             //Check of Essence used as a reference for frame count
             if (Essences_UsedForFrameCount==(int32u)-1)
@@ -6373,12 +6381,55 @@ void File_Mxf::Data_Parse()
                 Frame_Count_NotParsedIncluded=Essence->second.Frame_Count_NotParsedIncluded;
             }
             Demux_random_access=true;
-            Demux(Buffer+Buffer_Offset, (size_t)Element_Size, ContentType_MainStream);
+
+            bool ShouldDemux=true;
+            if (!Essence->second.Parsers.empty() && Essence->second.ShouldCheckAvcHeaders)
+            {
+                if (Essence->second.Parsers[0]->Status[IsAccepted])
+                    ShouldDemux=false;
+                else
+                {
+                    //Checking if we need to add SPS/PPS
+                    size_t CheckMax=0x10; //SPS uses to be in the first bytes only
+                    if (CheckMax>Element_Size-4)
+                        CheckMax=Element_Size-4;
+                    ShouldDemux=false;
+                    const int8u* Buffer_Temp=Buffer+(size_t)(Buffer_Offset+Element_Offset);
+                    for (size_t i=0; i<CheckMax; i++)
+                        if (Buffer_Temp[i]==0x00 && Buffer_Temp[i+1]==0x00 && Buffer_Temp[i+2]==0x01 && Buffer_Temp[i+3]==0x67)
+                        {
+                            //Stream_Temp.Demux_Level&=~((1<<7)|(1<<6)); //Remove the flag, SPS/PPS detected
+                            ShouldDemux=true;
+                            break;
+                        }
+                }
+
+                if (!ShouldDemux)
+                {
+                    //Stream_Temp.Demux_Level|= (1<<6); //In case of seek, we need to send again SPS/PPS //Deactivated because Hydra does not decode after a seek + 1 SPS/PPS only.
+                    //Stream_Temp.Demux_Level&=~(1<<7); //Remove the flag, SPS/PPS sent
+                    File_Avc::avcintra_header AvcIntraHeader=File_Avc::AVC_Intra_Headers_Data(Essence->second.ShouldCheckAvcHeaders);
+                    size_t Buffer_Temp_Size=AvcIntraHeader.Size+(size_t)(Element_Size);
+                    int8u* Buffer_Temp_Data=new int8u[Buffer_Temp_Size];
+                    if (AvcIntraHeader.Data)
+                        memcpy(Buffer_Temp_Data, AvcIntraHeader.Data, AvcIntraHeader.Size);
+                    memcpy(Buffer_Temp_Data+AvcIntraHeader.Size, Buffer+Buffer_Offset, (size_t)(Element_Size));
+                    Demux(Buffer_Temp_Data, Buffer_Temp_Size, ContentType_MainStream);
+                    Open_Buffer_Continue(Essence->second.Parsers[0], AvcIntraHeader.Data, AvcIntraHeader.Size);
+                }
+
+                Essence->second.ShouldCheckAvcHeaders=0;
+            }
+            if (ShouldDemux)
+            {
+                Demux(Buffer+Buffer_Offset, (size_t)Element_Size, ContentType_MainStream);
+            }
+
         #endif //MEDIAINFO_DEMUX
 
         if (!Essence->second.Parsers.empty() && !(*(Essence->second.Parsers.begin()))->Status[IsFinished])
         {
-            if ((Code_Compare4&0xFF00FF00)==0x17000100 || (Code_Compare4&0xFF00FF00)==0x17000200)
+            if (Code_Compare3!=0x0E090502 && ((Code_Compare4&0xFF00FF00)==0x17000100 || (Code_Compare4&0xFF00FF00)==0x17000200))
             {
                 if (Element_Size)
                 {
@@ -6398,9 +6449,10 @@ void File_Mxf::Data_Parse()
                         Element_Begin1("Line");
                         int32u ArrayCount, ArrayLength;
                         int16u LineNumber, SampleCount;
+                        int8u WrappingType, SampleCoding;
                         Get_B2 (LineNumber,                         "Line Number"); Element_Info1(LineNumber);
-                        Skip_B1(                                    "Wrapping Type");
-                        Skip_B1(                                    "Payload Sample Coding");
+                        Get_B1 (WrappingType,                       "Wrapping Type");
+                        Get_B1 (SampleCoding,                       "Payload Sample Coding");
                         Get_B2 (SampleCount,                        "Payload Sample Count");
                         Get_B4 (ArrayCount,                         "Payload Array Count");
                         Get_B4 (ArrayLength,                        "Payload Array Length");
@@ -6413,6 +6465,16 @@ void File_Mxf::Data_Parse()
                             (*Parser)->FrameInfo.PTS=Essence->second.FrameInfo.PTS;
                         if (Essence->second.FrameInfo.DUR!=(int64u)-1)
                             (*Parser)->FrameInfo.DUR=Essence->second.FrameInfo.DUR;
+                        #if defined(MEDIAINFO_VBI_YES)
+                            if ((*Parser)->ParserName=="Vbi")
+                            {
+                                ((File_Vbi*)(*Parser))->WrappingType=WrappingType;
+                                ((File_Vbi*)(*Parser))->SampleCoding=SampleCoding;
+                                ((File_Vbi*)(*Parser))->LineNumber=LineNumber;
+                                if (Pos+1==Count)
+                                    ((File_Vbi*)(*Parser))->IsLast=true;
+                            }
+                        #endif //defined(MEDIAINFO_VBI_YES)
                         #if defined(MEDIAINFO_ANCILLARY_YES)
                             if ((*Parser)->ParserName=="Ancillary")
                                 ((File_Ancillary*)(*Parser))->LineNumber=LineNumber;
@@ -6435,23 +6497,25 @@ void File_Mxf::Data_Parse()
                             Parsing_Size=Element_Size-Element_Offset; // There is a problem
                         if (Parsing_Size>Array_Size)
                             Parsing_Size=Array_Size; // There is a problem
-                        (*Parser)->Frame_Count=Frame_Count;
                         (*Parser)->Frame_Count_NotParsedIncluded=Frame_Count_NotParsedIncluded;
                         Open_Buffer_Continue((*Parser), Buffer+Buffer_Offset+(size_t)(Element_Offset), Parsing_Size);
-                        if ((Code_Compare4&0xFF00FF00)==0x17000100 && LineNumber==21 && (*Parser)->Count_Get(Stream_Text)==0)
-                        {
-                            (*Parser)->Accept();
-                            (*Parser)->Stream_Prepare(Stream_Text);
-                            (*Parser)->Fill(Stream_Text, StreamPos_Last, Text_Format, "EIA-608");
-                            (*Parser)->Fill(Stream_Text, StreamPos_Last, Text_MuxingMode, "VBI / Line 21");
-                        }
                         Element_Offset+=Parsing_Size;
                         if (Parsing_Size<Array_Size)
                             Skip_XX(Array_Size-Parsing_Size,    "Padding");
                         Element_End0();
                     }
-                    if (IsSub)
-                        Frame_Count++;
+                    if (!Essence->second.IsFilled && (!Count || (Essence->second.Parsers.size()==1 && Essence->second.Parsers[0]->Status[IsFilled])))
+                    {
+                        if (Streams_Count>0)
+                            Streams_Count--;
+                        Essence->second.IsFilled=true;
+                        if (Config->ParseSpeed<1.0 && IsSub)
+                        {
+                            Fill();
+                            Open_Buffer_Unsynch();
+                            Finish();
+                        }
+                    }
                 }
             }
             else
@@ -6501,7 +6565,7 @@ void File_Mxf::Data_Parse()
                     {
                         if (!Essence->second.Parsers[Pos]->Status[IsAccepted] && Essence->second.Parsers[Pos]->Status[IsFinished])
                         {
-                            delete *(Essence->second.Parsers.begin()+Pos);
+                            delete static_cast<MediaInfoLib::File__Analyze*>(*(Essence->second.Parsers.begin()+Pos));
                             Essence->second.Parsers.erase(Essence->second.Parsers.begin()+Pos);
                             Pos--;
                         }
@@ -6511,7 +6575,7 @@ void File_Mxf::Data_Parse()
                             for (size_t Pos2=0; Pos2<Essence->second.Parsers.size(); Pos2++)
                             {
                                 if (Pos2!=Pos)
-                                    delete *(Essence->second.Parsers.begin()+Pos2);
+                                    delete static_cast<MediaInfoLib::File__Analyze*>(*(Essence->second.Parsers.begin()+Pos2));
                             }
                             Essence->second.Parsers.clear();
                             Essence->second.Parsers.push_back(Parser);
@@ -6556,7 +6620,6 @@ void File_Mxf::Data_Parse()
                 {
                     Fill();
                     Open_Buffer_Unsynch();
-                    Finish();
                 }
             }
         }
@@ -6618,8 +6681,144 @@ void File_Mxf::Data_Parse()
             }
         #endif //MEDIAINFO_DEMUX
     }
-    else
+    break;
+    case 0x060E2B34010101LL: {
+    if (!Element_IsComplete_Get())
+    {
+        Element_WaitForMoreData();
+        return;
+    }
+    if ((Code.lo>>40)==Elements::MXFGenericStreamDataElementKey>>40)
+    {
+        Element_Name(Mxf_Param_Info_Elements(Elements::MXFGenericStreamDataElementKey));
+        MXFGenericStreamDataElementKey_09_01();
+    }
+    ELEMENT(FillerData)
+    ELEMENT(TerminatingFillerData)
+    ELEMENT(XMLDocumentText_Indirect)
+    ELEMENT(SubDescriptors)
+    ELEMENT(PackageMarkerObject)
+    }
+    break;
+    }
+    case 0x060E2B34020401LL:
+    case 0x060E2B34020501LL:
+    case 0x060E2B34025301LL: {
+    if (!Element_IsComplete_Get())
+    {
+        Element_WaitForMoreData();
+        return;
+    }
+    if (false) {}
+    GROUP(LensUnitAcquisitionMetadata)
+    GROUP(CameraUnitAcquisitionMetadata)
+    GROUP(UserDefinedAcquisitionMetadata)
+    GROUP(FillerGroup)
+    GROUP(Sequence)
+    GROUP(SourceClip)
+    GROUP(TimecodeGroup)
+    GROUP(ContentStorage)
+    GROUP(EssenceData)
+    GROUP(PictureDescriptor)
+    GROUP(CDCIDescriptor)
+    GROUP(RGBADescriptor)
+    GROUP(Preface)
+    GROUP(Identification)
+    GROUP(NetworkLocator)
+    GROUP(TextLocator)
+    GROUP(StereoscopicPictureSubDescriptor)
+    GROUP(MaterialPackage)
+    GROUP(SourcePackage)
+    GROUP(EventTrack)
+    GROUP(StaticTrack)
+    GROUP(TimelineTrack)
+    GROUP(DescriptiveMarker)
+    GROUP(SoundDescriptor)
+    GROUP(DataEssenceDescriptor)
+    GROUP(MultipleDescriptor)
+    GROUP(DescriptiveClip)
+    GROUP(AES3PCMDescriptor)
+    GROUP(WAVEPCMDescriptor)
+    GROUP(MPEGVideoDescriptor)
+    GROUP(JPEG2000SubDescriptor)
+    GROUP(VBIDataDescriptor)
+    GROUP(ANCDataDescriptor)
+    GROUP(MPEGAudioDescriptor)
+    GROUP(ApplicationPlugInObject)
+    GROUP(ApplicationReferencedObject)
+    GROUP(MCALabelSubDescriptor)
+    GROUP(DCTimedTextDescriptor)
+    GROUP(DCTimedTextResourceSubDescriptor)
+    GROUP(ContainerConstraintsSubDescriptor)
+    GROUP(MPEG4VisualSubDescriptor)
+    GROUP(AudioChannelLabelSubDescriptor)
+    GROUP(SoundfieldGroupLabelSubDescriptor)
+    GROUP(GroupOfSoundfieldGroupsLabelSubDescriptor)
+    GROUP(AVCSubDescriptor)
+    GROUP(IABEssenceDescriptor)
+    GROUP(IABSoundfieldLabelSubDescriptor)
+    GROUPSTATIC(HeaderPartitionOpenIncomplete)
+    GROUPSTATIC(HeaderPartitionClosedIncomplete)
+    GROUPSTATIC(HeaderPartitionOpenComplete)
+    GROUPSTATIC(HeaderPartitionClosedComplete)
+    GROUPSTATIC(BodyPartitionOpenIncomplete)
+    GROUPSTATIC(BodyPartitionClosedIncomplete)
+    GROUPSTATIC(BodyPartitionOpenComplete)
+    GROUPSTATIC(BodyPartitionClosedComplete)
+    GROUPSTATIC(GenericStreamPartition)
+    GROUPSTATIC(FooterPartitionClosedIncomplete)
+    GROUPSTATIC(FooterPartitionClosedComplete)
+    GROUPSTATIC(PrimerPack)
+    GROUP(IndexTableSegment)
+    GROUPSTATIC(RandomIndexPack)
+    GROUP(SDTISystemMetadataPack)
+    else if ((Code.lo>>16)==(Groups::SDTISystemMetadataPack>>16))
+    {
+        Code_Compare4&=0xFFFFFF00; //Remove MetaData Block Count
+        if (0) {}
+        GROUP(SDTIPackageMetadataSet)
+        GROUP(SDTIPictureMetadataSet)
+        GROUP(SDTISoundMetadataSet)
+        GROUP(SDTIDataMetadataSet)
+        GROUP(SDTIControlMetadataSet)
+    }
+    else if ((Code.lo>>16)==(Groups::SystemScheme1FirstElement>>16))
+    {
+        Element_Code=Code.lo;
+        Code_Compare4&=0xFFFF0000; //Remove Metadata or Control Element Identifier + Element Number
+        if (0) {}
+        GROUP(SystemScheme1FirstElement)
+    }
+    GROUP(DM_AS_11_Core_Framework)
+    GROUP(DM_AS_11_Segmentation_Framework)
+    GROUP(DM_AS_11_UKDPP_Framework)
+    GROUP(ProductionFramework)
+    GROUP(TextBasedFramework)
+    GROUP(GenericStreamTextBasedSet)
+    GROUP(ISXDDataEssenceDescriptor)
+    GROUP(PHDRMetadataTrackSubDescriptor)
+    GROUP(OmneonVideoNetworksDescriptiveMetadataLinks)
+    GROUP(OmneonVideoNetworksDescriptiveMetadataData)
+    GROUP(HdrVividMetadataTrackSubDescriptor)
+    GROUP(FFV1PictureSubDescriptor)
+    GROUP(MGASoundEssenceDescriptor)
+    GROUP(MGAAudioMetadataSubDescriptor)
+    GROUP(MGASoundfieldGroupLabelSubDescriptor)
+    GROUP(SADMAudioMetadataSubDescriptor)
+    GROUP(RIFFChunkDefinitionSubDescriptor)
+    GROUP(ADM_CHNASubDescriptor)
+    GROUP(ADMChannelMapping)
+    GROUP(RIFFChunkReferencesSubDescriptor)
+    GROUP(ADMAudioMetadataSubDescriptor)
+    GROUP(ADMSoundfieldGroupLabelSubDescriptor)
+    else {
+        ManageGroup((int8u)(Code.hi>>16)==0x53?&File_Mxf::UnknownGroupItem:&File_Mxf::UnknownElement);
+    }
+    break;
+    }
+    default:
         Skip_XX(Element_Size,                                   "Unknown");
+    }
 
     if (Buffer_End && (File_Offset+Buffer_Offset+Element_Size>=Buffer_End || File_GoTo!=(int64u)-1) )
     {
@@ -6631,7 +6830,7 @@ void File_Mxf::Data_Parse()
     }
 
     if ((!IsParsingEnd && IsParsingMiddle_MaxOffset==(int64u)-1 && Config->ParseSpeed<1.0)
-     && ((!IsSub && File_Offset>=Buffer_PaddingBytes+0x4000000) //TODO: 64 MB by default (security), should be changed
+     && ((!IsSub && File_Offset>=Buffer_PaddingBytes+(Config->ParseSpeed<=0?0x1000000:0x4000000)) //TODO: 64 MB by default (security), should be changed
       || (Streams_Count==0 && !Descriptors.empty())))
     {
         Fill();
@@ -6666,25 +6865,47 @@ void File_Mxf::Data_Parse()
 // Elements
 //***************************************************************************
 
-#undef ELEMENT
-#define ELEMENT(_CODE, _CALL, _NAME) \
-    case 0x##_CODE :   { \
-                       Element_Name(_NAME); \
-                       int64u Element_Size_Save=Element_Size; \
-                       Element_Size=Element_Offset+Length2; \
-                       _CALL(); \
-                       Element_Offset=Element_Size; \
-                       Element_Size=Element_Size_Save; \
-                       } \
-                       break; \
+#define ELEMENT_BEGIN() \
+    { \
+        switch (Code2) \
+        { \
 
-#define ELEMENT_UUID(_ELEMENT, _NAME) \
-else if (Code_Compare1==Elements::_ELEMENT##1 \
-      && (Code_Compare2&0xFFFFFF00)==(Elements::_ELEMENT##2&0xFFFFFF00) \
-      && Code_Compare3==Elements::_ELEMENT##3 \
-      && Code_Compare4==Elements::_ELEMENT##4) \
+#define ELEMENT_MIDDLE() \
+    default: \
+    { \
+        std::map<int16u, int128u>::iterator Primer_Value = Primer_Values.find(Code2); \
+        if (Primer_Value != Primer_Values.end()) \
+        { \
+            if (false); \
+
+#define ELEMENT_END() \
+        } \
+    } \
+    } \
+    } \
+
+#undef ELEMENT
+#define ELEMENT(_CODE, _CALL) \
+    case 0x##_CODE :    { \
+                        std::map<int16u, int128u>::iterator Primer_Value=Primer_Values.find(0x##_CODE); \
+                        const char* Temp; \
+                        if (Primer_Value!=Primer_Values.end()) { \
+                            auto Temp = Mxf_Param_Info((int32u)Primer_Value->second.hi, Primer_Value->second.lo); \
+                            Element_Name(Temp ? Temp : Ztring().From_UUID(Code).To_UTF8().c_str()); \
+                        } \
+                        else { \
+                            Element_Name(Ztring().From_CC2(0x##_CODE).To_UTF8().c_str()); \
+                        } \
+                        _CALL(); \
+                        } \
+                        break; \
+
+#define ELEM____UUID_(_ELEMENT) \
+else if ((Primer_Value->second.hi>>24)==0x060E2B3401LL \
+      && Primer_Value->second.lo==Elements::_ELEMENT) \
 { \
-    Element_Name(_NAME); \
+    auto Temp = Mxf_Param_Info((int32u)Primer_Value->second.hi, Primer_Value->second.lo); \
+    Element_Name(Temp ? Temp : Ztring().From_UUID(Code).To_UTF8().c_str()); \
     int64u Element_Size_Save=Element_Size; \
     Element_Size=Element_Offset+Length2; \
     _ELEMENT(); \
@@ -6693,117 +6914,140 @@ else if (Code_Compare1==Elements::_ELEMENT##1 \
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::AES3PCMDescriptor()
+void File_Mxf::UnknownElement()
 {
-    Descriptors[InstanceUID].IsAes3Descriptor=true;
+    Skip_XX(Element_Size-Element_Offset,                        "Unknown");
+}
 
-    switch(Code2)
-    {
-        ELEMENT(3D08, AES3PCMDescriptor_AuxBitsMode,            "Use of Auxiliary Bits")
-        ELEMENT(3D0D, AES3PCMDescriptor_Emphasis,               "Emphasis")
-        ELEMENT(3D0F, AES3PCMDescriptor_BlockStartOffset,       "Position of first Z preamble in essence stream")
-        ELEMENT(3D10, AES3PCMDescriptor_ChannelStatusMode,      "Enumerated mode of carriage of channel status data")
-        ELEMENT(3D11, AES3PCMDescriptor_FixedChannelStatusData, "Fixed data pattern for channel status data")
-        ELEMENT(3D12, AES3PCMDescriptor_UserDataMode,           "Mode of carriage of user data")
-        ELEMENT(3D13, AES3PCMDescriptor_FixedUserData,          "Fixed data pattern for user data")
-        default: WaveAudioDescriptor();
+//---------------------------------------------------------------------------
+void File_Mxf::UnknownGroupItem()
+{
+    std::map<int16u, int128u>::iterator Primer_Value = Primer_Values.find(Code2);
+    if (Primer_Value != Primer_Values.end()) {
+        int8u Category = (int8u)(((int32u)Primer_Value->second.hi) >> 24);
+        if (Category == 0x01) {
+            ItemType = Mxf_Param_Type_Elements(Primer_Value->second.lo);
+        }
+        else {
+            ItemType = {};
+        }
+    }
+    else {
+        ItemType = {};
+    }
+    static const char* Name = "Value";
+    switch (ItemType) {
+    case Type_UInt:             {
+                                    switch (Length2) {
+                                    case 1: 
+                                        {
+                                        int8u Value;
+                                        Get_B1 (Value,          Name); Element_Info1(Value);
+                                        Value_UInt = Value;
+                                        }
+                                    break;
+                                    case 2:
+                                        {
+                                        int16u Value;
+                                        Get_B2 (Value,          Name); Element_Info1(Value);
+                                        Value_UInt = Value;
+                                        }
+                                    break;
+                                    case 3:
+                                        {
+                                        Get_B3 (Value_UInt,     Name); Element_Info1(Value_UInt);
+                                        }
+                                    break;
+                                    case 4:
+                                        {
+                                        Get_B4 (Value_UInt,     Name); Element_Info1(Value_UInt);
+                                        }
+                                    break;
+                                    default:
+                                        Skip_XX(Length2,        "(Unsupported)");
+                                    }
+                                } break;
+    case Type_AUID:             { Get_UUID(Value_UUID,          Name); Element_Info1(Ztring().From_UUID(Value_UUID)); } break; // TODO: implement 16-bit Little Endian UL
+    case Type_UUID:             { Get_UL(Value_UUID,            Name, nullptr); Element_Info1(int32u(Value_UUID.hi>>32)==0x060E2B34?Mxf_Param_Info((int32u)Value_UUID.hi, Value_UUID.lo):Ztring().From_UUID(Value_UUID).To_UTF8().c_str()); } break;
+    case Type_UTF16:            { Get_UTF16B(Length2, Value_String, Name); Element_Info1(Value_String); } break;
+    case Type_ISO7:             { Get_UTF8(Length2, Value_String, Name); Element_Info1(Value_String); } break;
+    case Type_Ref:              { Get_UUID(Value_UUID,          Name); Element_Info1(Ztring().From_UUID(Value_UUID)); } break;
+    case Type_Refs: { VECTOR(16); Value_UUIDVector.resize(Count); for (int32u i = 0; i < Count; i++) { Get_UUID(Value_UUIDVector[i], Name); Element_Info1(Ztring().From_UUID(Value_UUIDVector[i])); } } break;
+    default: Skip_XX(Length2,                                   Name);
     }
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::CDCIEssenceDescriptor()
+void File_Mxf::AES3PCMDescriptor()
 {
-    switch(Code2)
-    {
-        ELEMENT(3301, CDCIEssenceDescriptor_ComponentDepth,     "Active bits per sample")
-        ELEMENT(3302, CDCIEssenceDescriptor_HorizontalSubsampling, "Horizontal colour subsampling")
-        ELEMENT(3303, CDCIEssenceDescriptor_ColorSiting,        "Color siting")
-        ELEMENT(3304, CDCIEssenceDescriptor_BlackRefLevel,      "Black refernece level")
-        ELEMENT(3305, CDCIEssenceDescriptor_WhiteReflevel,      "White reference level")
-        ELEMENT(3306, CDCIEssenceDescriptor_ColorRange,         "Color range")
-        ELEMENT(3307, CDCIEssenceDescriptor_PaddingBits,        "Bits to round up each pixel to stored size")
-        ELEMENT(3308, CDCIEssenceDescriptor_VerticalSubsampling,"Vertical colour subsampling")
-        ELEMENT(3309, CDCIEssenceDescriptor_AlphaSampleDepth,   "Bits per alpha sample")
-        ELEMENT(330B, CDCIEssenceDescriptor_ReversedByteOrder,  "Luma followed by Chroma")
-        default:
-                {
-                    std::map<int16u, int128u>::iterator Primer_Value = Primer_Values.find(Code2);
-                    if (Primer_Value != Primer_Values.end())
-                    {
-                        int32u Code_Compare1 = Primer_Value->second.hi >> 32;
-                        int32u Code_Compare2 = (int32u)Primer_Value->second.hi;
-                        int32u Code_Compare3 = Primer_Value->second.lo >> 32;
-                        int32u Code_Compare4 = (int32u)Primer_Value->second.lo;
-                        if (0);
-                        ELEMENT_UUID(SubDescriptors,            "Sub Descriptors")
-                    }
-                }
-    }
+    Descriptors[InstanceUID].IsAes3Descriptor=true;
 
-    GenericPictureEssenceDescriptor();
+    ELEMENT_BEGIN()
+    ELEMENT(3D08, AES3PCMDescriptor_AuxBitsMode)
+    ELEMENT(3D0D, AES3PCMDescriptor_Emphasis)
+    ELEMENT(3D0F, AES3PCMDescriptor_BlockStartOffset)
+    ELEMENT(3D10, AES3PCMDescriptor_ChannelStatusMode)
+    ELEMENT(3D11, AES3PCMDescriptor_FixedChannelStatusData)
+    ELEMENT(3D12, AES3PCMDescriptor_UserDataMode)
+    ELEMENT(3D13, AES3PCMDescriptor_FixedUserData)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    WAVEPCMDescriptor();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::CDCIDescriptor()
+{
+    ELEMENT_BEGIN()
+    ELEMENT(3301, CDCIDescriptor_ComponentDepth)
+    ELEMENT(3302, CDCIDescriptor_HorizontalSubsampling)
+    ELEMENT(3303, CDCIDescriptor_ColorSiting)
+    ELEMENT(3304, CDCIDescriptor_BlackRefLevel)
+    ELEMENT(3305, CDCIDescriptor_WhiteReflevel)
+    ELEMENT(3306, CDCIDescriptor_ColorRange)
+    ELEMENT(3307, CDCIDescriptor_PaddingBits)
+    ELEMENT(3308, CDCIDescriptor_VerticalSubsampling)
+    ELEMENT(3309, CDCIDescriptor_AlphaSampleDepth)
+    ELEMENT(330B, CDCIDescriptor_ReversedByteOrder)
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(SubDescriptors)
+    ELEMENT_END()
+    PictureDescriptor();
 
     if (Descriptors[InstanceUID].Infos.find("ColorSpace")==Descriptors[InstanceUID].Infos.end())
         Descriptor_Fill("ColorSpace", "YUV");
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::OpenIncompleteHeaderPartition()
+void File_Mxf::HeaderPartitionOpenIncomplete()
 {
     //Parsing
     PartitionMetadata();
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::ClosedIncompleteHeaderPartition()
+void File_Mxf::HeaderPartitionClosedIncomplete()
 {
     //Parsing
     PartitionMetadata();
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::OpenCompleteHeaderPartition()
+void File_Mxf::HeaderPartitionOpenComplete()
 {
     //Parsing
     PartitionMetadata();
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::ClosedCompleteHeaderPartition()
+void File_Mxf::HeaderPartitionClosedComplete()
 {
     //Parsing
     PartitionMetadata();
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::OpenIncompleteBodyPartition()
-{
-    //Parsing
-    PartitionMetadata();
-
-    #if MEDIAINFO_NEXTPACKET && MEDIAINFO_DEMUX
-        if (!Demux_HeaderParsed)
-        {
-            Demux_HeaderParsed=true;
-
-            //Testing locators
-            Locators_CleanUp();
-
-            if (Config->File_IgnoreEditsBefore && !Config->File_IsDetectingDuration_Get() && Config->Event_CallBackFunction_IsSet()) //Only if demux packet may be requested
-                Open_Buffer_Seek(3, 0, (int64u)-1); //Forcing seek to Config->File_IgnoreEditsBefore
-            if (Config->NextPacket_Get() && Config->Event_CallBackFunction_IsSet())
-            {
-                if (Locators.empty())
-                {
-                    Config->Demux_EventWasSent=true; //First set is to indicate the user that header is parsed
-                    return;
-                }
-            }
-        }
-    #endif //MEDIAINFO_NEXTPACKET && MEDIAINFO_DEMUX
-}
-
-//---------------------------------------------------------------------------
-void File_Mxf::ClosedIncompleteBodyPartition()
+void File_Mxf::BodyPartitionOpenIncomplete()
 {
     //Parsing
     PartitionMetadata();
@@ -6831,7 +7075,7 @@ void File_Mxf::ClosedIncompleteBodyPartition()
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::OpenCompleteBodyPartition()
+void File_Mxf::BodyPartitionClosedIncomplete()
 {
     //Parsing
     PartitionMetadata();
@@ -6859,7 +7103,35 @@ void File_Mxf::OpenCompleteBodyPartition()
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::ClosedCompleteBodyPartition()
+void File_Mxf::BodyPartitionOpenComplete()
+{
+    //Parsing
+    PartitionMetadata();
+
+    #if MEDIAINFO_NEXTPACKET && MEDIAINFO_DEMUX
+        if (!Demux_HeaderParsed)
+        {
+            Demux_HeaderParsed=true;
+
+            //Testing locators
+            Locators_CleanUp();
+
+            if (Config->File_IgnoreEditsBefore && !Config->File_IsDetectingDuration_Get() && Config->Event_CallBackFunction_IsSet()) //Only if demux packet may be requested
+                Open_Buffer_Seek(3, 0, (int64u)-1); //Forcing seek to Config->File_IgnoreEditsBefore
+            if (Config->NextPacket_Get() && Config->Event_CallBackFunction_IsSet())
+            {
+                if (Locators.empty())
+                {
+                    Config->Demux_EventWasSent=true; //First set is to indicate the user that header is parsed
+                    return;
+                }
+            }
+        }
+    #endif //MEDIAINFO_NEXTPACKET && MEDIAINFO_DEMUX
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::BodyPartitionClosedComplete()
 {
     //Parsing
     PartitionMetadata();
@@ -6894,28 +7166,28 @@ void File_Mxf::GenericStreamPartition()
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::OpenIncompleteFooterPartition()
+void File_Mxf::FooterPartitionOpenIncomplete()
 {
     //Parsing
     PartitionMetadata();
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::ClosedIncompleteFooterPartition()
+void File_Mxf::FooterPartitionClosedIncomplete()
 {
     //Parsing
     PartitionMetadata();
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::OpenCompleteFooterPartition()
+void File_Mxf::FooterPartitionOpenComplete()
 {
     //Parsing
     PartitionMetadata();
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::ClosedCompleteFooterPartition()
+void File_Mxf::FooterPartitionClosedComplete()
 {
     //Parsing
     PartitionMetadata();
@@ -6924,12 +7196,12 @@ void File_Mxf::ClosedCompleteFooterPartition()
 //---------------------------------------------------------------------------
 void File_Mxf::ContentStorage()
 {
-    switch(Code2)
-    {
-        ELEMENT(1901, ContentStorage_Packages,                  "Packages")
-        ELEMENT(1902, ContentStorage_EssenceContainerData,      "EssenceContainerData")
-        default: GenerationInterchangeObject();
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(1901, ContentStorage_Packages)
+    ELEMENT(1902, ContentStorage_EssenceData)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    GenerationInterchangeObject();
 
     if (Code2==0x3C0A && InstanceUID==Prefaces[Preface_Current].ContentStorage) //InstanceIUD
     {
@@ -6940,70 +7212,71 @@ void File_Mxf::ContentStorage()
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::DMSegment()
+void File_Mxf::DescriptiveMarker()
 {
-    switch(Code2)
-    {
-        ELEMENT(0202, DMSegment_Duration,                       "Duration")
-        ELEMENT(6101, DMSegment_DMFramework,                    "DM Framework")
-        ELEMENT(6102, DMSegment_TrackIDs,                       "Track IDs")
-        default: StructuralComponent();
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(0202, DescriptiveMarker_Duration)
+    ELEMENT(6101, DescriptiveMarker_DMFramework)
+    ELEMENT(6102, DescriptiveMarker_TrackIDs)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    if (Code2!=0x0202) //TODO: better way to handle that
+    StructuralComponent();
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::EssenceContainerData()
+void File_Mxf::EssenceData()
 {
-    switch(Code2)
-    {
-        ELEMENT(2701, EssenceContainerData_LinkedPackageUID,    "LinkedPackageUID")
-        ELEMENT(3F06, EssenceContainerData_IndexSID,            "IndexSID")
-        ELEMENT(3F07, EssenceContainerData_BodySID,             "BodySID")
-        default: GenerationInterchangeObject();
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(2701, EssenceData_LinkedPackageUID)
+    ELEMENT(3F06, EssenceData_IndexSID)
+    ELEMENT(3F07, EssenceData_BodySID)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    GenerationInterchangeObject();
 }
 
 //---------------------------------------------------------------------------
 void File_Mxf::EventTrack()
 {
-    switch(Code2)
-    {
-        ELEMENT(4901, EventTrack_EventEditRate,                 "Edit Rate of Event Track")
-        ELEMENT(4902, EventTrack_EventOrigin,                   "Offset used to resolved timeline references to this event track")
-        default: GenericTrack();
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(4901, EventTrack_EventEditRate)
+    ELEMENT(4902, EventTrack_EventOrigin)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    GenericTrack();
 }
 
 //---------------------------------------------------------------------------
 void File_Mxf::FileDescriptor()
 {
-    switch(Code2)
-    {
-        ELEMENT(3001, FileDescriptor_SampleRate,                "SampleRate")
-        ELEMENT(3002, FileDescriptor_ContainerDuration,         "ContainerDuration")
-        ELEMENT(3004, FileDescriptor_EssenceContainer,          "EssenceContainer")
-        ELEMENT(3005, FileDescriptor_Codec,                     "Codec")
-        ELEMENT(3006, FileDescriptor_LinkedTrackID,             "LinkedTrackID")
-        default: GenericDescriptor();
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(3001, FileDescriptor_SampleRate)
+    ELEMENT(3002, FileDescriptor_ContainerDuration)
+    ELEMENT(3004, FileDescriptor_EssenceContainer)
+    ELEMENT(3005, FileDescriptor_Codec)
+    ELEMENT(3006, FileDescriptor_LinkedTrackID)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    GenericDescriptor();
 }
 
 //---------------------------------------------------------------------------
 void File_Mxf::Identification()
 {
-    switch(Code2)
-    {
-        ELEMENT(3C01, Identification_CompanyName,               "CompanyName")
-        ELEMENT(3C02, Identification_ProductName,               "ProductName")
-        ELEMENT(3C03, Identification_ProductVersion,            "ProductVersion")
-        ELEMENT(3C04, Identification_VersionString,             "VersionString")
-        ELEMENT(3C05, Identification_ProductUID,                "ProductUID")
-        ELEMENT(3C06, Identification_ModificationDate ,         "ModificationDate")
-        ELEMENT(3C07, Identification_ToolkitVersion,            "ToolkitVersion")
-        ELEMENT(3C08, Identification_Platform,                  "Platform")
-        ELEMENT(3C09, Identification_ThisGenerationUID,         "ThisGenerationUID")
-        default: InterchangeObject();
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(3C01, Identification_CompanyName)
+    ELEMENT(3C02, Identification_ProductName)
+    ELEMENT(3C03, Identification_ProductVersion)
+    ELEMENT(3C04, Identification_VersionString)
+    ELEMENT(3C05, Identification_ProductUID)
+    ELEMENT(3C06, Identification_ModificationDate)
+    ELEMENT(3C07, Identification_ToolkitVersion)
+    ELEMENT(3C08, Identification_Platform)
+    ELEMENT(3C09, Identification_ThisGenerationUID)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    InterchangeObject();
 }
 
 //---------------------------------------------------------------------------
@@ -7025,21 +7298,21 @@ void File_Mxf::IndexTableSegment()
         #endif //MEDIAINFO_DEMUX || MEDIAINFO_SEEK
     }
 
-    switch(Code2)
-    {
-        ELEMENT(3F05, IndexTableSegment_EditUnitByteCount,      "Edit Unit Byte Count")
-        ELEMENT(3F06, IndexTableSegment_IndexSID,               "IndexSID")
-        ELEMENT(3F07, IndexTableSegment_BodySID,                "BodySID")
-        ELEMENT(3F08, IndexTableSegment_SliceCount,             "Slice Count")
-        ELEMENT(3F09, IndexTableSegment_DeltaEntryArray,        "Delta Entry Array")
-        ELEMENT(3F0A, IndexTableSegment_IndexEntryArray,        "Index Entry Array")
-        ELEMENT(3F0B, IndexTableSegment_IndexEditRate,          "Index Edit Rate")
-        ELEMENT(3F0C, IndexTableSegment_IndexStartPosition,     "Index Start Position")
-        ELEMENT(3F0D, IndexTableSegment_IndexDuration,          "Index Duration")
-        ELEMENT(3F0E, IndexTableSegment_PosTableCount,          "PosTableCount")
-        ELEMENT(8002, IndexTableSegment_8002,                   "8002?")
-        default: InterchangeObject();
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(3F05, IndexTableSegment_EditUnitByteCount)
+    ELEMENT(3F06, IndexTableSegment_IndexSID)
+    ELEMENT(3F07, IndexTableSegment_BodySID)
+    ELEMENT(3F08, IndexTableSegment_SliceCount)
+    ELEMENT(3F09, IndexTableSegment_DeltaEntryArray)
+    ELEMENT(3F0A, IndexTableSegment_IndexEntryArray)
+    ELEMENT(3F0B, IndexTableSegment_IndexEditRate)
+    ELEMENT(3F0C, IndexTableSegment_IndexStartPosition)
+    ELEMENT(3F0D, IndexTableSegment_IndexDuration)
+    ELEMENT(3F0E, IndexTableSegment_PosTableCount)
+    ELEMENT(8002, IndexTableSegment_8002)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    InterchangeObject();
 
     if (Code2==0x3C0A) //InstanceIUD
     {
@@ -7051,118 +7324,248 @@ void File_Mxf::IndexTableSegment()
 //---------------------------------------------------------------------------
 void File_Mxf::GenericDescriptor()
 {
-    switch(Code2)
-    {
-        ELEMENT(2F01, GenericDescriptor_Locators,               "Locators")
-        default: GenerationInterchangeObject();
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(2F01, GenericDescriptor_Locators)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    GenerationInterchangeObject();
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::JPEG2000PictureSubDescriptor()
+void File_Mxf::JPEG2000SubDescriptor()
 {
-    {
-        std::map<int16u, int128u>::iterator Primer_Value=Primer_Values.find(Code2);
-        if (Primer_Value!=Primer_Values.end())
-        {
-            int32u Code_Compare1=Primer_Value->second.hi>>32;
-            int32u Code_Compare2=(int32u)Primer_Value->second.hi;
-            int32u Code_Compare3=Primer_Value->second.lo>>32;
-            int32u Code_Compare4=(int32u)Primer_Value->second.lo;
-            if(0);
-            ELEMENT_UUID(JPEG2000PictureSubDescriptor_Rsiz,     "Rsiz - Decoder capabilities")
-            ELEMENT_UUID(JPEG2000PictureSubDescriptor_Xsiz,     "Xsiz - Width")
-            ELEMENT_UUID(JPEG2000PictureSubDescriptor_Ysiz,     "Ysiz - Height")
-            ELEMENT_UUID(JPEG2000PictureSubDescriptor_XOsiz,    "XOsiz - Horizontal offset")
-            ELEMENT_UUID(JPEG2000PictureSubDescriptor_YOsiz,    "YOsiz - Vertical offset")
-            ELEMENT_UUID(JPEG2000PictureSubDescriptor_XTsiz,    "XTsiz - Width of one reference tile")
-            ELEMENT_UUID(JPEG2000PictureSubDescriptor_YTsiz,    "YTsiz - Height of one reference tile")
-            ELEMENT_UUID(JPEG2000PictureSubDescriptor_XTOsiz,   "XTOsiz - Horizontal offset of the first tile")
-            ELEMENT_UUID(JPEG2000PictureSubDescriptor_YTOsiz,   "YTOsiz - Vertical offset of the first tile")
-            ELEMENT_UUID(JPEG2000PictureSubDescriptor_Csiz,     "Csiz - Number of components in the picture")
-            ELEMENT_UUID(JPEG2000PictureSubDescriptor_PictureComponentSizing, "Picture Component Sizing")
-            ELEMENT_UUID(JPEG2000PictureSubDescriptor_CodingStyleDefault, "Coding Style Default")
-            ELEMENT_UUID(JPEG2000PictureSubDescriptor_QuantizationDefault, "Quantization Default")
-        }
-    }
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(Rsiz)
+    ELEM____UUID_(Xsiz)
+    ELEM____UUID_(Ysiz)
+    ELEM____UUID_(XOsiz)
+    ELEM____UUID_(YOsiz)
+    ELEM____UUID_(XTsiz)
+    ELEM____UUID_(YTsiz)
+    ELEM____UUID_(XTOsiz)
+    ELEM____UUID_(YTOsiz)
+    ELEM____UUID_(Csiz)
+    ELEM____UUID_(PictureComponentSizing)
+    ELEM____UUID_(CodingStyleDefault)
+    ELEM____UUID_(QuantizationDefault)
+    ELEMENT_END()
+    GenerationInterchangeObject();
+}
 
+//---------------------------------------------------------------------------
+void File_Mxf::FFV1PictureSubDescriptor()
+{
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(FFV1InitializationMetadata)
+    ELEM____UUID_(FFV1IdenticalGOP)
+    ELEM____UUID_(FFV1MaxGOP)
+    ELEM____UUID_(FFV1MaximumBitRate)
+    ELEM____UUID_(FFV1Version)
+    ELEM____UUID_(FFV1MicroVersion)
+    ELEMENT_END()
+    GenerationInterchangeObject();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::MGASoundEssenceDescriptor()
+{
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(SubDescriptors)
+    ELEM____UUID_(MGASoundEssenceBlockAlign)
+    ELEM____UUID_(MGASoundEssenceAverageBytesPerSecond)
+    ELEM____UUID_(MGASoundEssenceSequenceOffset)
+    ELEMENT_END()
+    SoundDescriptor();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::MGAAudioMetadataSubDescriptor()
+{
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(MGALinkID)
+    ELEM____UUID_(MGAAudioMetadataIndex)
+    ELEM____UUID_(MGAAudioMetadataIdentifier)
+    ELEM____UUID_(MGAAudioMetadataPayloadULArray)
+    ELEMENT_END()
+    GenerationInterchangeObject();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::MGASoundfieldGroupLabelSubDescriptor()
+{
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(MGAMetadataSectionLinkID)
+    ELEMENT_END()
+    MCALabelSubDescriptor();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::SADMAudioMetadataSubDescriptor()
+{
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(SADMMetadataSectionLinkID)
+    ELEM____UUID_(SADMProfileLevelULBatch)
+    ELEMENT_END()
+    GenerationInterchangeObject();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::RIFFChunkDefinitionSubDescriptor()
+{
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(RIFFChunkStreamID)
+    ELEM____UUID_(RIFFChunkID)
+    ELEM____UUID_(RIFFChunkUUID)
+    ELEM____UUID_(RIFFChunkHashSHA1)
+    ELEMENT_END()
+    GenerationInterchangeObject();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ADM_CHNASubDescriptor()
+{
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(NumLocalChannels)
+    ELEM____UUID_(NumADMAudioTrackUIDs)
+    ELEM____UUID_(ADMChannelMappingsArray)
+    ELEMENT_END()
+    GenerationInterchangeObject();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ADMChannelMapping()
+{
+    //Clear if first sub-element
+    #if defined(MEDIAINFO_ADM_YES)
+        if (Element_Offset<=4)
+            ADMChannelMapping_Presence.reset();
+    #endif //defined(MEDIAINFO_ADM_YES)
+
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(LocalChannelID)
+    ELEM____UUID_(ADMAudioTrackUID)
+    ELEM____UUID_(ADMAudioTrackChannelFormatID)
+    ELEM____UUID_(ADMAudioPackFormatID)
+    ELEMENT_END()
+    GenerationInterchangeObject();
+
+    #if defined(MEDIAINFO_ADM_YES)
+        if ((ADMChannelMapping_Presence.to_ulong()&3)==3)
+        {
+            if (!Adm)
+            {
+                Adm=new File_Adm;
+                Open_Buffer_Init(Adm);
+            }
+            ((File_Adm*)Adm)->chna_Add(ADMChannelMapping_LocalChannelID, ADMChannelMapping_ADMAudioTrackUID);
+            ADMChannelMapping_Presence.reset();
+        }
+    #endif //defined(MEDIAINFO_ADM_YES)
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::RIFFChunkReferencesSubDescriptor()
+{
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(RIFFChunkStreamIDsArray)
+    ELEMENT_END()
+    GenerationInterchangeObject();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ADMAudioMetadataSubDescriptor()
+{
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(RIFFChunkStreamID_link1)
+    ELEM____UUID_(ADMProfileLevelULBatch)
+    ELEMENT_END()
+    GenerationInterchangeObject();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ADMSoundfieldGroupLabelSubDescriptor()
+{
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(RIFFChunkStreamID_link2)
+    ELEM____UUID_(ADMAudioProgrammeID_ST2131)
+    ELEM____UUID_(ADMAudioContentID_ST2131)
+    ELEM____UUID_(ADMAudioObjectID_ST2131)
+    ELEMENT_END()
     GenerationInterchangeObject();
 }
 
 //---------------------------------------------------------------------------
 void File_Mxf::GenerationInterchangeObject()
 {
-    //Parsing
-    switch(Code2)
-    {
-        ELEMENT(0102, GenerationInterchangeObject_GenerationUID, "GenerationUID")
-        default: InterchangeObject();
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(0102, GenerationInterchangeObject_GenerationUID)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    InterchangeObject();
 }
 
 //---------------------------------------------------------------------------
 void File_Mxf::GenericPackage()
 {
-    switch(Code2)
-    {
-        ELEMENT(4401, GenericPackage_PackageUID,                "PackageUID")
-        ELEMENT(4402, GenericPackage_Name,                      "Name")
-        ELEMENT(4403, GenericPackage_Tracks,                    "Tracks")
-        ELEMENT(4404, GenericPackage_PackageModifiedDate,       "PackageModifiedDate")
-        ELEMENT(4405, GenericPackage_PackageCreationDate,       "PackageCreationDate")
-        default: GenerationInterchangeObject();
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(4401, GenericPackage_PackageUID)
+    ELEMENT(4402, GenericPackage_Name)
+    ELEMENT(4403, GenericPackage_Tracks)
+    ELEMENT(4404, GenericPackage_PackageModifiedDate)
+    ELEMENT(4405, GenericPackage_PackageCreationDate)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    GenerationInterchangeObject();
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::GenericPictureEssenceDescriptor()
+void File_Mxf::PictureDescriptor()
 {
-    switch(Code2)
-    {
-        ELEMENT(3201, GenericPictureEssenceDescriptor_PictureEssenceCoding, "Identifier of the Picture Compression Scheme")
-        ELEMENT(3202, GenericPictureEssenceDescriptor_StoredHeight, "Vertical Field Size")
-        ELEMENT(3203, GenericPictureEssenceDescriptor_StoredWidth, "Horizontal Size")
-        ELEMENT(3204, GenericPictureEssenceDescriptor_SampledHeight, "Sampled height supplied to codec")
-        ELEMENT(3205, GenericPictureEssenceDescriptor_SampledWidth, "Sampled width supplied to codec")
-        ELEMENT(3206, GenericPictureEssenceDescriptor_SampledXOffset, "Offset from sampled to stored width")
-        ELEMENT(3207, GenericPictureEssenceDescriptor_SampledYOffset, "Offset from sampled to stored height")
-        ELEMENT(3208, GenericPictureEssenceDescriptor_DisplayHeight, "Displayed Height placed in Production Aperture")
-        ELEMENT(3209, GenericPictureEssenceDescriptor_DisplayWidth, "Displayed Width placed in Production Aperture")
-        ELEMENT(320A, GenericPictureEssenceDescriptor_DisplayXOffset,"Horizontal offset from the of the picture as displayed")
-        ELEMENT(320B, GenericPictureEssenceDescriptor_DisplayYOffset,"Vertical offset of the picture as displayed")
-        ELEMENT(320C, GenericPictureEssenceDescriptor_FrameLayout, "Interlace or Progressive layout")
-        ELEMENT(320D, GenericPictureEssenceDescriptor_VideoLineMap, "First active line in each field")
-        ELEMENT(320E, GenericPictureEssenceDescriptor_AspectRatio, "Aspect ratio")
-        ELEMENT(320F, GenericPictureEssenceDescriptor_AlphaTransparency, "Is Alpha Inverted")
-        ELEMENT(3210, GenericPictureEssenceDescriptor_TransferCharacteristic, "Transfer Characteristic")
-        ELEMENT(3211, GenericPictureEssenceDescriptor_ImageAlignmentOffset, "Byte Boundary alignment required for Low Level Essence Storage")
-        ELEMENT(3212, GenericPictureEssenceDescriptor_FieldDominance,"Number of the field which is considered temporally to come first")
-        ELEMENT(3213, GenericPictureEssenceDescriptor_ImageStartOffset, "Unused bytes before start of stored data")
-        ELEMENT(3214, GenericPictureEssenceDescriptor_ImageEndOffset,"Unused bytes before start of stored data")
-        ELEMENT(3215, GenericPictureEssenceDescriptor_SignalStandard, "Underlying signal standard")
-        ELEMENT(3216, GenericPictureEssenceDescriptor_StoredF2Offset, "Topness Adjustment for stored picture")
-        ELEMENT(3217, GenericPictureEssenceDescriptor_DisplayF2Offset, "Topness Adjustment for Displayed Picture")
-        ELEMENT(3218, GenericPictureEssenceDescriptor_ActiveFormatDescriptor, "Specifies the intended framing of the content within the displayed image")
-        ELEMENT(3219, GenericPictureEssenceDescriptor_ColorPrimaries, "Color Primaries")
-        ELEMENT(321A, GenericPictureEssenceDescriptor_CodingEquations, "Coding Equations")
-        default:
-                {
-                    std::map<int16u, int128u>::iterator Primer_Value=Primer_Values.find(Code2);
-                    if (Primer_Value!=Primer_Values.end())
-                    {
-                        int32u Code_Compare1=Primer_Value->second.hi>>32;
-                        int32u Code_Compare2=(int32u)Primer_Value->second.hi;
-                        int32u Code_Compare3=Primer_Value->second.lo>>32;
-                        int32u Code_Compare4=(int32u)Primer_Value->second.lo;
-                        if(0);
-                        ELEMENT_UUID(MasteringDisplayPrimaries, "Mastering Display Primaries")
-                        ELEMENT_UUID(MasteringDisplayWhitePointChromaticity, "Mastering Display White Point Chromaticity")
-                        ELEMENT_UUID(MasteringDisplayMaximumLuminance, "Mastering Display Maximum Luminance")
-                        ELEMENT_UUID(MasteringDisplayMinimumLuminance, "Mastering Display Minimum Luminance")
-                    }
-                }
-    }
-
+    ELEMENT_BEGIN()
+    ELEMENT(3201, PictureDescriptor_PictureEssenceCoding)
+    ELEMENT(3202, PictureDescriptor_StoredHeight)
+    ELEMENT(3203, PictureDescriptor_StoredWidth)
+    ELEMENT(3204, PictureDescriptor_SampledHeight)
+    ELEMENT(3205, PictureDescriptor_SampledWidth)
+    ELEMENT(3206, PictureDescriptor_SampledXOffset)
+    ELEMENT(3207, PictureDescriptor_SampledYOffset)
+    ELEMENT(3208, PictureDescriptor_DisplayHeight)
+    ELEMENT(3209, PictureDescriptor_DisplayWidth)
+    ELEMENT(320A, PictureDescriptor_DisplayXOffset)
+    ELEMENT(320B, PictureDescriptor_DisplayYOffset)
+    ELEMENT(320C, PictureDescriptor_FrameLayout)
+    ELEMENT(320D, PictureDescriptor_VideoLineMap)
+    ELEMENT(320E, PictureDescriptor_AspectRatio)
+    ELEMENT(320F, PictureDescriptor_AlphaTransparency)
+    ELEMENT(3210, PictureDescriptor_TransferCharacteristic)
+    ELEMENT(3211, PictureDescriptor_ImageAlignmentOffset)
+    ELEMENT(3212, PictureDescriptor_FieldDominance)
+    ELEMENT(3213, PictureDescriptor_ImageStartOffset)
+    ELEMENT(3214, PictureDescriptor_ImageEndOffset)
+    ELEMENT(3215, PictureDescriptor_SignalStandard)
+    ELEMENT(3216, PictureDescriptor_StoredF2Offset)
+    ELEMENT(3217, PictureDescriptor_DisplayF2Offset)
+    ELEMENT(3218, PictureDescriptor_ActiveFormatDescriptor)
+    ELEMENT(3219, PictureDescriptor_ColorPrimaries)
+    ELEMENT(321A, PictureDescriptor_CodingEquations)
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(MasteringDisplayPrimaries)
+    ELEM____UUID_(MasteringDisplayWhitePointChromaticity)
+    ELEM____UUID_(MasteringDisplayMaximumLuminance)
+    ELEM____UUID_(MasteringDisplayMinimumLuminance)
+    ELEMENT_END()
     FileDescriptor();
 
     if (Descriptors[InstanceUID].StreamKind==Stream_Max)
@@ -7175,21 +7578,20 @@ void File_Mxf::GenericPictureEssenceDescriptor()
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::GenericSoundEssenceDescriptor()
+void File_Mxf::SoundDescriptor()
 {
-    //Parsing
-    switch(Code2)
-    {
-        ELEMENT(3D01, GenericSoundEssenceDescriptor_QuantizationBits, "QuantizationBits")
-        ELEMENT(3D02, GenericSoundEssenceDescriptor_Locked ,    "Locked")
-        ELEMENT(3D03, GenericSoundEssenceDescriptor_AudioSamplingRate, "AudioSamplingRate")
-        ELEMENT(3D04, GenericSoundEssenceDescriptor_AudioRefLevel, "AudioRefLevel")
-        ELEMENT(3D05, GenericSoundEssenceDescriptor_ElectroSpatialFormulation, "ElectroSpatialFormulation")
-        ELEMENT(3D06, GenericSoundEssenceDescriptor_SoundEssenceCompression, "SoundEssenceCompression")
-        ELEMENT(3D07, GenericSoundEssenceDescriptor_ChannelCount, "ChannelCount")
-        ELEMENT(3D0C, GenericSoundEssenceDescriptor_DialNorm, "DialNorm")
-        default: FileDescriptor();
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(3D01, SoundDescriptor_QuantizationBits)
+    ELEMENT(3D02, SoundDescriptor_Locked)
+    ELEMENT(3D03, SoundDescriptor_AudioSamplingRate)
+    ELEMENT(3D04, SoundDescriptor_AudioRefLevel)
+    ELEMENT(3D05, SoundDescriptor_ElectroSpatialFormulation)
+    ELEMENT(3D06, SoundDescriptor_SoundEssenceCompression)
+    ELEMENT(3D07, SoundDescriptor_ChannelCount)
+    ELEMENT(3D0C, SoundDescriptor_DialNorm)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    FileDescriptor();
 
     if (Descriptors[InstanceUID].StreamKind==Stream_Max)
     {
@@ -7201,39 +7603,35 @@ void File_Mxf::GenericSoundEssenceDescriptor()
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::GenericDataEssenceDescriptor()
+void File_Mxf::DataEssenceDescriptor()
 {
-    //Parsing
-    switch(Code2)
-    {
-        ELEMENT(3E01, GenericDataEssenceDescriptor_DataEssenceCoding, "DataEssenceCoding")
-        default: FileDescriptor();
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(3E01, DataEssenceDescriptor_DataEssenceCoding)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    FileDescriptor();
 }
 
 //---------------------------------------------------------------------------
 void File_Mxf::GenericTrack()
 {
-    //Parsing
-    switch(Code2)
-    {
-        ELEMENT(4801, GenericTrack_TrackID,                     "TrackID")
-        ELEMENT(4802, GenericTrack_TrackName,                   "TrackName")
-        ELEMENT(4803, GenericTrack_Sequence,                    "Sequence")
-        ELEMENT(4804, GenericTrack_TrackNumber,                 "TrackNumber")
-        default: GenerationInterchangeObject();
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(4801, GenericTrack_TrackID)
+    ELEMENT(4802, GenericTrack_TrackName)
+    ELEMENT(4803, GenericTrack_Sequence)
+    ELEMENT(4804, GenericTrack_TrackNumber)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    GenerationInterchangeObject();
 }
 
 //---------------------------------------------------------------------------
 void File_Mxf::InterchangeObject()
 {
-    //Parsing
-    switch(Code2)
-    {
-        ELEMENT(3C0A, InterchangeObject_InstanceUID,            "InstanceUID")
-        default: ;
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(3C0A, InterchangeObject_InstanceUID)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
 }
 
 //---------------------------------------------------------------------------
@@ -7263,33 +7661,24 @@ void File_Mxf::MaterialPackage()
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::MPEG2VideoDescriptor()
+void File_Mxf::MPEGVideoDescriptor()
 {
-    Descriptors[InstanceUID].HasMPEG2VideoDescriptor=true;
+    Descriptors[InstanceUID].HasMPEGVideoDescriptor=true;
 
-    {
-        std::map<int16u, int128u>::iterator Primer_Value=Primer_Values.find(Code2);
-        if (Primer_Value!=Primer_Values.end())
-        {
-            int32u Code_Compare1=Primer_Value->second.hi>>32;
-            int32u Code_Compare2=(int32u)Primer_Value->second.hi;
-            int32u Code_Compare3=Primer_Value->second.lo>>32;
-            int32u Code_Compare4=(int32u)Primer_Value->second.lo;
-            if(0);
-            ELEMENT_UUID(MPEG2VideoDescriptor_SingleSequence,           "Single sequence")
-            ELEMENT_UUID(MPEG2VideoDescriptor_ConstantBFrames,          "Number of B frames always constant")
-            ELEMENT_UUID(MPEG2VideoDescriptor_CodedContentType,         "Coded content type")
-            ELEMENT_UUID(MPEG2VideoDescriptor_LowDelay,                 "Low delay")
-            ELEMENT_UUID(MPEG2VideoDescriptor_ClosedGOP,                "Closed GOP")
-            ELEMENT_UUID(MPEG2VideoDescriptor_IdenticalGOP,             "Identical GOP")
-            ELEMENT_UUID(MPEG2VideoDescriptor_MaxGOP,                   "Maximum occurring spacing between I frames")
-            ELEMENT_UUID(MPEG2VideoDescriptor_BPictureCount,            "Maximum number of B pictures between P or I frames")
-            ELEMENT_UUID(MPEG2VideoDescriptor_ProfileAndLevel,          "Profile and level")
-            ELEMENT_UUID(MPEG2VideoDescriptor_BitRate,                  "Maximum bit rate")
-        }
-    }
-
-    CDCIEssenceDescriptor();
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(SingleSequence)
+    ELEM____UUID_(ConstantBPictureCount)
+    ELEM____UUID_(CodedContentScanning)
+    ELEM____UUID_(LowDelay)
+    ELEM____UUID_(ClosedGOP)
+    ELEM____UUID_(IdenticalGOP)
+    ELEM____UUID_(MaxGOP)
+    ELEM____UUID_(MaxBPictureCount)
+    ELEM____UUID_(ProfileAndLevel)
+    ELEM____UUID_(BitRate)
+    ELEMENT_END()
+    CDCIDescriptor();
 }
 
 //---------------------------------------------------------------------------
@@ -7298,32 +7687,16 @@ void File_Mxf::MultipleDescriptor()
     if (Descriptors[InstanceUID].Type==descriptor::Type_Unknown)
         Descriptors[InstanceUID].Type=descriptor::type_Mutiple;
 
-    switch(Code2)
-    {
-        ELEMENT(3F01, MultipleDescriptor_FileDescriptors,       "FileDescriptors")
-        default:;
-                /*
-                //TODO: check when MPEG-4 Visual subdescriptor, it disabled stream info merge
-                {
-                    std::map<int16u, int128u>::iterator Primer_Value=Primer_Values.find(Code2);
-                    if (Primer_Value!=Primer_Values.end())
-                    {
-                        int32u Code_Compare1=Primer_Value->second.hi>>32;
-                        int32u Code_Compare2=(int32u)Primer_Value->second.hi;
-                        int32u Code_Compare3=Primer_Value->second.lo>>32;
-                        int32u Code_Compare4=(int32u)Primer_Value->second.lo;
-                        if(0);
-                        ELEMENT_UUID(SubDescriptors,            "Sub Descriptors")
-                    }
-                }
-                */
-    }
-
+    ELEMENT_BEGIN()
+    ELEMENT(3F01, MultipleDescriptor_FileDescriptors)
+    ELEMENT_MIDDLE()
+    //ELEM____UUID_(SubDescriptors) //TODO: check when MPEG-4 Visual subdescriptor, it disabled stream info merge
+    ELEMENT_END()
     FileDescriptor();
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::DMSourceClip()
+void File_Mxf::DescriptiveClip()
 {
     InterchangeObject();
 }
@@ -7331,11 +7704,11 @@ void File_Mxf::DMSourceClip()
 //---------------------------------------------------------------------------
 void File_Mxf::NetworkLocator()
 {
-    switch(Code2)
-    {
-        ELEMENT(4001, NetworkLocator_URLString,                 "A URL indicating where the essence may be found.")
-        default: GenerationInterchangeObject();
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(4001, NetworkLocator_URLString)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    GenerationInterchangeObject();
 
     if (Code2==0x3C0A)
     {
@@ -7355,19 +7728,19 @@ void File_Mxf::NetworkLocator()
 //---------------------------------------------------------------------------
 void File_Mxf::Preface()
 {
-    switch(Code2)
-    {
-        ELEMENT(3B02, Preface_LastModifiedDate,                 "LastModifiedDate")
-        ELEMENT(3B03, Preface_ContentStorage,                   "ContentStorage")
-        ELEMENT(3B05, Preface_Version,                          "Version")
-        ELEMENT(3B06, Preface_Identifications,                  "Identifications")
-        ELEMENT(3B07, Preface_ObjectModelVersion,               "ObjectModelVersion")
-        ELEMENT(3B08, Preface_PrimaryPackage,                   "PrimaryPackage")
-        ELEMENT(3B09, Preface_OperationalPattern,               "OperationalPattern")
-        ELEMENT(3B0A, Preface_EssenceContainers,                "EssenceContainers")
-        ELEMENT(3B0B, Preface_DMSchemes,                        "DMSchemes")
-        default: GenerationInterchangeObject();
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(3B02, Preface_LastModifiedDate)
+    ELEMENT(3B03, Preface_ContentStorage)
+    ELEMENT(3B05, Preface_Version)
+    ELEMENT(3B06, Preface_Identifications)
+    ELEMENT(3B07, Preface_ObjectModelVersion)
+    ELEMENT(3B08, Preface_PrimaryPackage)
+    ELEMENT(3B09, Preface_OperationalPattern)
+    ELEMENT(3B0A, Preface_EssenceContainers)
+    ELEMENT(3B0B, Preface_DMSchemes)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    GenerationInterchangeObject();
 
     if (Code2==0x3C0A) //InstanceIUD
     {
@@ -7376,58 +7749,43 @@ void File_Mxf::Preface()
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::Primer()
+void File_Mxf::PrimerPack()
 {
     //Parsing
-    if (Vector(2+16)==(int32u)-1)
-        return;
-    while (Element_Offset<Element_Size)
+    VECTOR(2+16);
+    for (int32u i=0; i<Count; i++)
     {
         Element_Begin1("LocalTagEntryBatch");
         int16u LocalTag;
         int128u UID;
         Get_B2 (LocalTag,                                       "LocalTag"); Element_Info1(Ztring().From_CC2(LocalTag));
-        Get_UL (UID,                                            "UID", NULL); Element_Info1(Ztring().From_UUID(UID));
+        Get_UL (UID,                                            "UID", NULL); { auto Temp = Mxf_Param_Info((int32u)UID.hi, UID.lo); Element_Info1(Temp ? Temp : Ztring().From_UUID(UID).To_UTF8().c_str()); };
         Element_End0();
 
         FILLING_BEGIN();
-            if (LocalTag>=0x8000) //user defined
-                Primer_Values[LocalTag]=UID;
+            Primer_Values[LocalTag]=UID;
         FILLING_END();
     }
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::RGBAEssenceDescriptor()
+void File_Mxf::RGBADescriptor()
 {
     Descriptors[InstanceUID].Type=descriptor::Type_RGBA;
 
-    switch(Code2)
-    {
-        ELEMENT(3401, RGBAEssenceDescriptor_PixelLayout,        "Pixel Layout")
-        ELEMENT(3403, RGBAEssenceDescriptor_Palette,            "Palette")
-        ELEMENT(3404, RGBAEssenceDescriptor_PaletteLayout,      "Palette Layout")
-        ELEMENT(3405, RGBAEssenceDescriptor_ScanningDirection,  "Enumerated Scanning Direction")
-        ELEMENT(3406, RGBAEssenceDescriptor_ComponentMaxRef,    "Maximum value for RGB components")
-        ELEMENT(3407, RGBAEssenceDescriptor_ComponentMinRef,    "Minimum value for RGB components")
-        ELEMENT(3408, RGBAEssenceDescriptor_AlphaMaxRef,        "Maximum value for alpha component")
-        ELEMENT(3409, RGBAEssenceDescriptor_AlphaMinRef,        "Minimum value for alpha component")
-        default:
-                {
-                    std::map<int16u, int128u>::iterator Primer_Value=Primer_Values.find(Code2);
-                    if (Primer_Value!=Primer_Values.end())
-                    {
-                        int32u Code_Compare1=Primer_Value->second.hi>>32;
-                        int32u Code_Compare2=(int32u)Primer_Value->second.hi;
-                        int32u Code_Compare3=Primer_Value->second.lo>>32;
-                        int32u Code_Compare4=(int32u)Primer_Value->second.lo;
-                        if(0);
-                        ELEMENT_UUID(SubDescriptors,            "Sub Descriptors")
-                    }
-                }
-    }
-
-    GenericPictureEssenceDescriptor(); 
+    ELEMENT_BEGIN()
+    ELEMENT(3401, RGBADescriptor_PixelLayout)
+    ELEMENT(3403, RGBADescriptor_Palette)
+    ELEMENT(3404, RGBADescriptor_PaletteLayout)
+    ELEMENT(3405, RGBADescriptor_ScanningDirection)
+    ELEMENT(3406, RGBADescriptor_ComponentMaxRef)
+    ELEMENT(3407, RGBADescriptor_ComponentMinRef)
+    ELEMENT(3408, RGBADescriptor_AlphaMaxRef)
+    ELEMENT(3409, RGBADescriptor_AlphaMinRef)
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(SubDescriptors)
+    ELEMENT_END()
+    PictureDescriptor(); 
     
     if (Descriptors[InstanceUID].Infos.find("ColorSpace")==Descriptors[InstanceUID].Infos.end())
         Descriptor_Fill("ColorSpace", "RGB");
@@ -7448,7 +7806,7 @@ void File_Mxf::RandomIndexPack()
         FILLING_BEGIN();
             if (!RandomIndexPacks_AlreadyParsed && PartitionPack_AlreadyParsed.find(RandomIndexPack.ByteOffset)==PartitionPack_AlreadyParsed.end())
                 RandomIndexPacks.push_back(RandomIndexPack);
-            if (!RandomIndexPacks_AlreadyParsed && RandomIndexPack.BodySID==ExtraMetadata_SID)
+            if (!RandomIndexPacks_AlreadyParsed && ExtraMetadata_SID.find(RandomIndexPack.BodySID)!=ExtraMetadata_SID.end() && RandomIndexPack.ByteOffset<ExtraMetadata_Offset)
                 ExtraMetadata_Offset=RandomIndexPack.ByteOffset;
         FILLING_END();
     }
@@ -7475,27 +7833,26 @@ void File_Mxf::RandomIndexPack()
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::DMFiller()
+void File_Mxf::FillerGroup()
 {
-    switch(Code2)
-    {
-        ELEMENT(0202, DMSegment_Duration,                       "Duration")
-        default: StructuralComponent();
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(0202, DescriptiveMarker_Duration)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    if (Code2!=0x0202) //TODO: better way to handle that
+    StructuralComponent();
 
-    FILLING_BEGIN();
-        DMSegments[InstanceUID].IsAs11SegmentFiller=true;
-    FILLING_END();
+    DescriptiveMarkers[InstanceUID].IsAs11SegmentFiller=true;
 }
 
 //---------------------------------------------------------------------------
 void File_Mxf::Sequence()
 {
-    switch(Code2)
-    {
-        ELEMENT(1001, Sequence_StructuralComponents,            "StructuralComponents")
-        default: StructuralComponent();
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(1001, Sequence_StructuralComponents)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    StructuralComponent();
 
     if (Code2==0x3C0A)
     {
@@ -7514,89 +7871,72 @@ void File_Mxf::Sequence()
 //---------------------------------------------------------------------------
 void File_Mxf::SourceClip()
 {
-    switch(Code2)
-    {
-        ELEMENT(1101, SourceClip_SourcePackageID,               "SourcePackageID")
-        ELEMENT(1102, SourceClip_SourceTrackID,                 "SourceTrackID")
-        ELEMENT(1201, SourceClip_StartPosition,                 "StartPosition")
-        default: StructuralComponent();
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(1101, SourceClip_SourcePackageID)
+    ELEMENT(1102, SourceClip_SourceTrackID)
+    ELEMENT(1201, SourceClip_StartPosition)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    StructuralComponent();
 }
 
 //---------------------------------------------------------------------------
 void File_Mxf::SourcePackage()
 {
-    switch(Code2)
-    {
-        //SourcePackage
-        ELEMENT(4701, SourcePackage_Descriptor,                 "Descriptor")
-        default: GenericPackage();
-                 Packages[InstanceUID].IsSourcePackage=true;
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(4701, SourcePackage_Descriptor)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    GenericPackage();
+
+    Packages[InstanceUID].IsSourcePackage=true;
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::StaticTrack()
+void File_Mxf::StaticTrack() 
 {
     GenericTrack();
 }
 
 //---------------------------------------------------------------------------
-//SMPTE 405M
-void File_Mxf::SystemScheme1()
+void File_Mxf::SystemScheme1FirstElement()
 {
-    systemschemes::iterator SystemScheme=SystemSchemes.find(Element_Code&0xFFFF);
-    if (SystemScheme==SystemSchemes.end())
-    {
-        SystemSchemes[Element_Code&0xFFFF].IsTimeCode=false;
-    }
-
-    switch(Code2)
-    {
-        #if MEDIAINFO_TRACE
-        ELEMENT(0101, SystemScheme1_FrameCount,                 "Frame Count")
-        #endif //MEDIAINFO_TRACE
-        ELEMENT(0102, SystemScheme1_TimeCodeArray,              "Time Code Array")
-        #if MEDIAINFO_TRACE
-        ELEMENT(0103, SystemScheme1_ClipIDArray,                "Clip ID Array")
-        ELEMENT(0104, SystemScheme1_ExtendedClipIDArray,        "Extended Clip ID Array")
-        ELEMENT(0105, SystemScheme1_VideoIndexArray,            "Video Index Array")
-        ELEMENT(0106, SystemScheme1_KLVMetadataSequence,        "KLV Metadata Sequence")
-        ELEMENT(3001, SystemScheme1_SampleRate,                 "Sample Rate")
-        ELEMENT(4804, SystemScheme1_EssenceTrackNumber,         "Essence Track Number")
-        ELEMENT(6801, SystemScheme1_EssenceTrackNumberBatch,    "Essence TrackNumber Batch")
-        ELEMENT(6803, SystemScheme1_ContentPackageIndexArray,   "Content Package Index Array")
-        #endif //MEDIAINFO_TRACE
-        default: InterchangeObject();
-    }
+    ELEMENT_BEGIN()
+    #if MEDIAINFO_TRACE
+    ELEMENT(0101, SystemScheme1_FrameCount)
+    #endif //MEDIAINFO_TRACE
+    ELEMENT(0102, SystemScheme1_TimeCodeArray)
+    #if MEDIAINFO_TRACE
+    ELEMENT(0103, SystemScheme1_ClipIDArray)
+    ELEMENT(0104, SystemScheme1_ExtendedClipIDArray)
+    ELEMENT(0105, SystemScheme1_VideoIndexArray)
+    ELEMENT(0106, SystemScheme1_KLVMetadataSequence)
+    ELEMENT(3001, SystemScheme1_SampleRate)
+    ELEMENT(4804, SystemScheme1_EssenceTrackNumber)
+    ELEMENT(6801, SystemScheme1_EssenceTrackNumberBatch)
+    ELEMENT(6803, SystemScheme1_ContentPackageIndexArray)
+    #endif //MEDIAINFO_TRACE
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    InterchangeObject();
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::AS11_AAF_Core()
+void File_Mxf::DM_AS_11_Core_Framework()
 {
-    {
-        std::map<int16u, int128u>::iterator Primer_Value=Primer_Values.find(Code2);
-        if (Primer_Value!=Primer_Values.end())
-        {
-            int32u Code_Compare1=Primer_Value->second.hi>>32;
-            int32u Code_Compare2=(int32u)Primer_Value->second.hi;
-            int32u Code_Compare3=Primer_Value->second.lo>>32;
-            int32u Code_Compare4=(int32u)Primer_Value->second.lo;
-            if(0);
-            ELEMENT_UUID(AS11_Core_SeriesTitle,                 "Series Title")
-            ELEMENT_UUID(AS11_Core_ProgrammeTitle,              "Programme Title")
-            ELEMENT_UUID(AS11_Core_EpisodeTitleNumber,          "Episode Title Number")
-            ELEMENT_UUID(AS11_Core_ShimName,                    "Shim Name")
-            ELEMENT_UUID(AS11_Core_AudioTrackLayout,            "Audio Track Layout")
-            ELEMENT_UUID(AS11_Core_PrimaryAudioLanguage,        "Primary Audio Language")
-            ELEMENT_UUID(AS11_Core_ClosedCaptionsPresent,       "Closed Captions Present")
-            ELEMENT_UUID(AS11_Core_ClosedCaptionsType,          "Closed Captions Type")
-            ELEMENT_UUID(AS11_Core_ClosedCaptionsLanguage,      "Closed Captions Language")
-            ELEMENT_UUID(AS11_Core_ShimVersion,                 "Shim Version")
-        }
-    }
-
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(AS_11_Series_Title)
+    ELEM____UUID_(AS_11_Programme_Title)
+    ELEM____UUID_(AS_11_Episode_Title_Number)
+    ELEM____UUID_(AS_11_Shim_Name)
+    ELEM____UUID_(AS_11_Audio_Track_Layout)
+    ELEM____UUID_(AS_11_Primary_Audio_Language)
+    ELEM____UUID_(AS_11_Closed_Captions_Present)
+    ELEM____UUID_(AS_11_Closed_Captions_Type)
+    ELEM____UUID_(AS_11_Caption_Language)
+    ELEM____UUID_(AS_11_Shim_Version)
+    ELEMENT_END()
     StructuralComponent();
 
     if (Code2==0x3C0A) //InstanceIUD
@@ -7604,23 +7944,13 @@ void File_Mxf::AS11_AAF_Core()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::AS11_AAF_Segmentation()
+void File_Mxf::DM_AS_11_Segmentation_Framework()
 {
-    {
-        std::map<int16u, int128u>::iterator Primer_Value=Primer_Values.find(Code2);
-        if (Primer_Value!=Primer_Values.end())
-        {
-            int32u Code_Compare1=Primer_Value->second.hi>>32;
-            int32u Code_Compare2=(int32u)Primer_Value->second.hi;
-            int32u Code_Compare3=Primer_Value->second.lo>>32;
-            int32u Code_Compare4=(int32u)Primer_Value->second.lo;
-            if(0);
-            ELEMENT_UUID(AS11_Segment_PartNumber,               "Part Number")
-            ELEMENT_UUID(AS11_Segment_PartTotal,                "Part Total")
-        }
-    }
-
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(AS_11_Part_Number)
+    ELEM____UUID_(AS_11_Part_Total)
+    ELEMENT_END()
     StructuralComponent();
 
     if (Code2==0x3C0A) //InstanceIUD
@@ -7628,58 +7958,48 @@ void File_Mxf::AS11_AAF_Segmentation()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::AS11_AAF_UKDPP()
+void File_Mxf::DM_AS_11_UKDPP_Framework()
 {
-    {
-        std::map<int16u, int128u>::iterator Primer_Value=Primer_Values.find(Code2);
-        if (Primer_Value!=Primer_Values.end())
-        {
-            int32u Code_Compare1=Primer_Value->second.hi>>32;
-            int32u Code_Compare2=(int32u)Primer_Value->second.hi;
-            int32u Code_Compare3=Primer_Value->second.lo>>32;
-            int32u Code_Compare4=(int32u)Primer_Value->second.lo;
-            if(0);
-            ELEMENT_UUID(AS11_UKDPP_ProductionNumber,           "Production Number")
-            ELEMENT_UUID(AS11_UKDPP_Synopsis,                   "Synopsis")
-            ELEMENT_UUID(AS11_UKDPP_Originator,                 "Originator")
-            ELEMENT_UUID(AS11_UKDPP_CopyrightYear,              "Copyright Year")
-            ELEMENT_UUID(AS11_UKDPP_OtherIdentifier,            "Other Identifier")
-            ELEMENT_UUID(AS11_UKDPP_OtherIdentifierType,        "Other Identifier Type")
-            ELEMENT_UUID(AS11_UKDPP_Genre,                      "Genre")
-            ELEMENT_UUID(AS11_UKDPP_Distributor,                "Distributor")
-            ELEMENT_UUID(AS11_UKDPP_PictureRatio,               "Picture Ratio")
-            ELEMENT_UUID(AS11_UKDPP_3D,                         "3D")
-            ELEMENT_UUID(AS11_UKDPP_3DType,                     "3D Type")
-            ELEMENT_UUID(AS11_UKDPP_ProductPlacement,           "Product Placement")
-            ELEMENT_UUID(AS11_UKDPP_FpaPass,                    "FPA Pass")
-            ELEMENT_UUID(AS11_UKDPP_FpaManufacturer,            "FPA Manufacturer")
-            ELEMENT_UUID(AS11_UKDPP_FpaVersion,                 "FPA Version")
-            ELEMENT_UUID(AS11_UKDPP_VideoComments,              "Video Comments")
-            ELEMENT_UUID(AS11_UKDPP_SecondaryAudioLanguage,     "Secondary Audio Language")
-            ELEMENT_UUID(AS11_UKDPP_TertiaryAudioLanguage,      "Tertiary Audio Language")
-            ELEMENT_UUID(AS11_UKDPP_AudioLoudnessStandard,      "Audio Loudness Standard")
-            ELEMENT_UUID(AS11_UKDPP_AudioComments,              "Audio Comments")
-            ELEMENT_UUID(AS11_UKDPP_LineUpStart,                "Line Up Start")
-            ELEMENT_UUID(AS11_UKDPP_IdentClockStart,            "Ident Clock Start")
-            ELEMENT_UUID(AS11_UKDPP_TotalNumberOfParts,         "Total Number Of Parts")
-            ELEMENT_UUID(AS11_UKDPP_TotalProgrammeDuration,     "Total Programme Duration")
-            ELEMENT_UUID(AS11_UKDPP_AudioDescriptionPresent,    "Audio Description Present")
-            ELEMENT_UUID(AS11_UKDPP_AudioDescriptionType,       "Audio Description Type")
-            ELEMENT_UUID(AS11_UKDPP_OpenCaptionsPresent,        "Open Captions Present")
-            ELEMENT_UUID(AS11_UKDPP_OpenCaptionsType,           "Open Captions Type")
-            ELEMENT_UUID(AS11_UKDPP_OpenCaptionsLanguage,       "Open Captions Language")
-            ELEMENT_UUID(AS11_UKDPP_SigningPresent,             "Signing Present")
-            ELEMENT_UUID(AS11_UKDPP_SignLanguage,               "Sign Language")
-            ELEMENT_UUID(AS11_UKDPP_CompletionDate,             "Completion Date")
-            ELEMENT_UUID(AS11_UKDPP_TextlessElementsExist,      "Textless Elements Exist")
-            ELEMENT_UUID(AS11_UKDPP_ProgrammeHasText,           "Programme Has Text")
-            ELEMENT_UUID(AS11_UKDPP_ProgrammeTextLanguage,      "Programme Text Language")
-            ELEMENT_UUID(AS11_UKDPP_ContactEmail,               "Contact Email")
-            ELEMENT_UUID(AS11_UKDPP_ContactTelephoneNumber,     "Contact Telephone Number")
-        }
-    }
-
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(UKDPP_Production_Number)
+    ELEM____UUID_(UKDPP_Synopsis)
+    ELEM____UUID_(UKDPP_Originator)
+    ELEM____UUID_(UKDPP_Copyright_Year)
+    ELEM____UUID_(UKDPP_Other_Identifier)
+    ELEM____UUID_(UKDPP_Other_Identifier_Type)
+    ELEM____UUID_(UKDPP_Genre)
+    ELEM____UUID_(UKDPP_Distributor)
+    ELEM____UUID_(UKDPP_Picture_Ratio)
+    ELEM____UUID_(UKDPP_3D)
+    ELEM____UUID_(UKDPP_3D_Type)
+    ELEM____UUID_(UKDPP_Product_Placement)
+    ELEM____UUID_(UKDPP_PSE_Pass)
+    ELEM____UUID_(UKDPP_PSE_Manufacturer)
+    ELEM____UUID_(UKDPP_PSE_Version)
+    ELEM____UUID_(UKDPP_Video_Comments)
+    ELEM____UUID_(UKDPP_Secondary_Audio_Language)
+    ELEM____UUID_(UKDPP_Tertiary_Audio_Language)
+    ELEM____UUID_(UKDPP_Audio_Loudness_Standard)
+    ELEM____UUID_(UKDPP_Audio_Comments)
+    ELEM____UUID_(UKDPP_Line_Up_Start)
+    ELEM____UUID_(UKDPP_Ident_Clock_Start)
+    ELEM____UUID_(UKDPP_Total_Number_Of_Parts)
+    ELEM____UUID_(UKDPP_Total_Programme_Duration)
+    ELEM____UUID_(UKDPP_Audio_Description_Present)
+    ELEM____UUID_(UKDPP_Audio_Description_Type)
+    ELEM____UUID_(UKDPP_Open_Captions_Present)
+    ELEM____UUID_(UKDPP_Open_Captions_Type)
+    ELEM____UUID_(UKDPP_Open_Captions_Language)
+    ELEM____UUID_(UKDPP_Signing_Present)
+    ELEM____UUID_(UKDPP_Sign_Language)
+    ELEM____UUID_(UKDPP_Completion_Date)
+    ELEM____UUID_(UKDPP_Textless_Elements_Exist)
+    ELEM____UUID_(UKDPP_Programme_Has_Text)
+    ELEM____UUID_(UKDPP_Programme_Text_Language)
+    ELEM____UUID_(UKDPP_Contact_Email)
+    ELEM____UUID_(UKDPP_Contact_Telephone_Number)
+    ELEMENT_END()
     StructuralComponent();
 
     if (Code2==0x3C0A) //InstanceIUD
@@ -7687,60 +8007,147 @@ void File_Mxf::AS11_AAF_UKDPP()
 }
 
 //---------------------------------------------------------------------------
-//SMPTE 380M
-void File_Mxf::DMScheme1()
+void File_Mxf::ProductionFramework()
 {
-    {
-        std::map<int16u, int128u>::iterator Primer_Value=Primer_Values.find(Code2);
-        if (Primer_Value!=Primer_Values.end())
-        {
-            int32u Code_Compare1=Primer_Value->second.hi>>32;
-            int32u Code_Compare2=(int32u)Primer_Value->second.hi;
-            int32u Code_Compare3=Primer_Value->second.lo>>32;
-            int32u Code_Compare4=(int32u)Primer_Value->second.lo;
-            if(0);
-            ELEMENT_UUID(PrimaryExtendedSpokenLanguage,                 "Primary Extended Spoken Language")
-            ELEMENT_UUID(SecondaryExtendedSpokenLanguage,               "Secondary Extended Spoken Language")
-            ELEMENT_UUID(OriginalExtendedSpokenLanguage,                "Original Extended Spoken Language")
-            ELEMENT_UUID(SecondaryOriginalExtendedSpokenLanguage,       "Secondary Original Extended Spoken Language")
-        }
-    }
-
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(PrimaryExtendedSpokenLanguageCode)
+    ELEM____UUID_(SecondaryExtendedSpokenLanguageCode)
+    ELEM____UUID_(OriginalExtendedSpokenLanguageCode)
+    ELEM____UUID_(SecondaryOriginalExtendedSpokenLanguageCode)
+    ELEMENT_END()
     InterchangeObject();
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::Application05_09_01()
+void File_Mxf::TextBasedFramework()
+{
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(TextBasedObject)
+    ELEMENT_END()
+    InterchangeObject();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::GenericStreamTextBasedSet()
+{
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(TextDataDescription)
+    ELEM____UUID_(TextMIMEMediaType)
+    ELEM____UUID_(RFC5646TextLanguageCode)
+    ELEM____UUID_(GenericStreamID)
+    ELEMENT_END()
+    InterchangeObject();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::GenericStreamID()
 {
     //Parsing
-    delete DolbyVisionMetadata;
-    DolbyVisionMetadata=new File_DolbyVisionMetadata;
-    Open_Buffer_Init(DolbyVisionMetadata);
-    Open_Buffer_Continue(DolbyVisionMetadata);
-    Element_Offset=0;
+    int32u Data;
+    Get_B4 (Data,                                               "Data"); Element_Info1(Data);
+
+    FILLING_BEGIN();
+        ExtraMetadata_SID.insert(Data);
+        Descriptors[InstanceUID].SID=Data;
+    FILLING_END();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::MXFGenericStreamDataElementKey_09_01()
+{
+    // Check if already parsed
+    auto Offset=File_Offset+Buffer_Offset+Element_Offset;
+    auto Found=MXFGenericStreamDataElementKey.find(Offset);
+    if (Found!=MXFGenericStreamDataElementKey.end())
+    {
+        Skip_XX(Element_Size,                                   "(Already parsed)");
+        return;
+    }
+    auto& Elem=MXFGenericStreamDataElementKey[Offset];
+    if (Partitions_Pos<Partitions.size())
+        Elem.SID=Partitions[Partitions_Pos].BodySID;
+
+    //Preparing
+    vector<File__Analyze*> Parsers;
+    #if 1
+        Parsers.push_back(new File_DolbyVisionMetadata);
+    #endif
+    #if 1
+        Parsers.push_back(new File_HdrVividMetadata);
+    #endif
+    #if defined(MEDIAINFO_ADM_YES)
+        Parsers.push_back(new File_Adm);
+    #endif
+    #if 1
+        Parsers.push_back(new File_DolbyAudioMetadata(true));
+    #endif
+
+    //Parsing
+    for (auto& Parser : Parsers)
+    {
+        Open_Buffer_Init(Parser);
+        Open_Buffer_Continue(Parser);
+        if (!Elem.Parser && Parser->Status[IsAccepted])
+            Elem.Parser=Parser;
+        else
+            delete Parser;
+        Element_Offset=0;
+    }
+    if (!Elem.Parser)
+    {
+        File__Analyze* Parser = new File_Unknown();
+        Open_Buffer_Init(Parser);
+        Parser->Stream_Prepare(Stream_Other);
+        Elem.Parser = Parser;
+    }
+
+    //Exception - ADM
+    #if defined(MEDIAINFO_ADM_YES)
+        if (Elem.Parser && Elem.Parser->Retrieve_Const(Stream_General, 0, General_Format)==__T("ADM"))
+        {
+            ((File_Adm*)Elem.Parser)->chna_Move((File_Adm*)Adm);
+            delete Adm;
+            Adm=Elem.Parser;
+            Elem.Parser=nullptr;
+        }
+    #endif
+
+    //Exception - Dolby Audio Metadata
+    #if 1
+        if (Elem.Parser && Elem.Parser->Retrieve_Const(Stream_General, 0, General_Format)==__T("Dolby Audio Metadata"))
+        {
+            delete DolbyAudioMetadata;
+            DolbyAudioMetadata=Elem.Parser;
+            Elem.Parser=nullptr;
+        }
+    #endif
+
     Skip_String(Element_Size,                                   "Data");
+    Element_Show();
 }
 
 //---------------------------------------------------------------------------
 void File_Mxf::StructuralComponent()
 {
-    switch(Code2)
-    {
-        ELEMENT(0201, StructuralComponent_DataDefinition,       "DataDefinition")
-        ELEMENT(0202, StructuralComponent_Duration,             "Duration")
-        default: GenerationInterchangeObject();
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(0201, StructuralComponent_DataDefinition)
+    ELEMENT(0202, StructuralComponent_Duration)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    GenerationInterchangeObject();
 }
 
 //---------------------------------------------------------------------------
 void File_Mxf::TextLocator()
 {
-    switch(Code2)
-    {
-        ELEMENT(4101, TextLocator_LocatorName,                  "Human-readable locator text string for manual location of essence")
-        default: GenerationInterchangeObject();
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(4101, TextLocator_LocatorName)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    GenerationInterchangeObject();
 }
 
 //---------------------------------------------------------------------------
@@ -7748,15 +8155,11 @@ void File_Mxf::StereoscopicPictureSubDescriptor()
 {
     StereoscopicPictureSubDescriptor_IsPresent=true;
 
-    //switch(Code2)
-    //{
-    //    default:
-                    GenerationInterchangeObject();
-    //}
+    GenerationInterchangeObject();
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::TimecodeComponent()
+void File_Mxf::TimecodeGroup()
 {
     if (Element_Offset==4)
     {
@@ -7765,59 +8168,42 @@ void File_Mxf::TimecodeComponent()
         FrameInfo.DTS=0;
     }
 
-    switch(Code2)
-    {
-        ELEMENT(1501, TimecodeComponent_StartTimecode,          "StartTimecode")
-        ELEMENT(1502, TimecodeComponent_RoundedTimecodeBase,    "RoundedTimecodeBase")
-        ELEMENT(1503, TimecodeComponent_DropFrame,              "DropFrame")
-        default: StructuralComponent();
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(1501, TimecodeGroup_StartTimecode)
+    ELEMENT(1502, TimecodeGroup_RoundedTimecodeBase)
+    ELEMENT(1503, TimecodeGroup_DropFrame)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    StructuralComponent();
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::WaveAudioDescriptor()
+void File_Mxf::WAVEPCMDescriptor()
 {
-    switch(Code2)
-    {
-        ELEMENT(3D09, WaveAudioDescriptor_AvgBps,               "Average Bytes per second")
-        ELEMENT(3D0A, WaveAudioDescriptor_BlockAlign,           "Sample Block alignment")
-        ELEMENT(3D0B, WaveAudioDescriptor_SequenceOffset,       "Frame number of first essence")
-        ELEMENT(3D29, WaveAudioDescriptor_PeakEnvelopeVersion,  "Peak envelope version information")
-        ELEMENT(3D2A, WaveAudioDescriptor_PeakEnvelopeFormat,   "Format of a peak point")
-        ELEMENT(3D2B, WaveAudioDescriptor_PointsPerPeakValue,   "Number of peak points per peak value")
-        ELEMENT(3D2C, WaveAudioDescriptor_PeakEnvelopeBlockSize,"Number of audio samples used to generate each peak frame")
-        ELEMENT(3D2D, WaveAudioDescriptor_PeakChannels,         "Number of peak channels")
-        ELEMENT(3D2E, WaveAudioDescriptor_PeakFrames,           "Number of peak frames")
-        ELEMENT(3D2F, WaveAudioDescriptor_PeakOfPeaksPosition,  "Offset to the first audio sample whose absolute value is the maximum value of the entire audio file")
-        ELEMENT(3D30, WaveAudioDescriptor_PeakEnvelopeTimestamp,"Time stamp of the creation of the peak data")
-        ELEMENT(3D31, WaveAudioDescriptor_PeakEnvelopeData ,    "Peak envelope data")
-        ELEMENT(3D32, WaveAudioDescriptor_ChannelAssignment,    "Channel assignment")
-        default:
-                {
-                    std::map<int16u, int128u>::iterator Primer_Value=Primer_Values.find(Code2);
-                    if (Primer_Value!=Primer_Values.end())
-                    {
-                        int32u Code_Compare1=Primer_Value->second.hi>>32;
-                        int32u Code_Compare2=(int32u)Primer_Value->second.hi;
-                        int32u Code_Compare3=Primer_Value->second.lo>>32;
-                        int32u Code_Compare4=(int32u)Primer_Value->second.lo;
-                        if(0);
-                        ELEMENT_UUID(SubDescriptors,                                "Sub Descriptors")
-                    }
-                }
-    }
-
-    GenericSoundEssenceDescriptor();
+    ELEMENT_BEGIN()
+    ELEMENT(3D09, WAVEPCMDescriptor_AvgBps)
+    ELEMENT(3D0A, WAVEPCMDescriptor_BlockAlign)
+    ELEMENT(3D0B, WAVEPCMDescriptor_SequenceOffset)
+    ELEMENT(3D29, WAVEPCMDescriptor_PeakEnvelopeVersion)
+    ELEMENT(3D2A, WAVEPCMDescriptor_PeakEnvelopeFormat)
+    ELEMENT(3D2B, WAVEPCMDescriptor_PointsPerPeakValue)
+    ELEMENT(3D2C, WAVEPCMDescriptor_PeakEnvelopeBlockSize)
+    ELEMENT(3D2D, WAVEPCMDescriptor_PeakChannels)
+    ELEMENT(3D2E, WAVEPCMDescriptor_PeakFrames)
+    ELEMENT(3D2F, WAVEPCMDescriptor_PeakOfPeaksPosition)
+    ELEMENT(3D30, WAVEPCMDescriptor_PeakEnvelopeTimestamp)
+    ELEMENT(3D31, WAVEPCMDescriptor_PeakEnvelopeData)
+    ELEMENT(3D32, WAVEPCMDescriptor_ChannelAssignment)
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(SubDescriptors)
+    ELEMENT_END()
+    SoundDescriptor();
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::VbiPacketsDescriptor()
+void File_Mxf::VBIDataDescriptor()
 {
-    //switch(Code2)
-    //{
-    //    default:
-                GenericDataEssenceDescriptor();
-    //}
+    DataEssenceDescriptor();
 
     if (Descriptors[InstanceUID].Type==descriptor::Type_Unknown)
     {
@@ -7829,13 +8215,9 @@ void File_Mxf::VbiPacketsDescriptor()
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::AncPacketsDescriptor()
+void File_Mxf::ANCDataDescriptor()
 {
-    //switch(Code2)
-    //{
-    //    default:
-                GenericDataEssenceDescriptor();
-    //}
+    DataEssenceDescriptor();
 
     if (Descriptors[InstanceUID].Type==descriptor::Type_Unknown)
     {
@@ -7847,55 +8229,31 @@ void File_Mxf::AncPacketsDescriptor()
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::MpegAudioDescriptor()
+void File_Mxf::MPEGAudioDescriptor()
 {
-    {
-        std::map<int16u, int128u>::iterator Primer_Value=Primer_Values.find(Code2);
-        if (Primer_Value!=Primer_Values.end())
-        {
-            int32u Code_Compare1=Primer_Value->second.hi>>32;
-            int32u Code_Compare2=(int32u)Primer_Value->second.hi;
-            int32u Code_Compare3=Primer_Value->second.lo>>32;
-            int32u Code_Compare4=(int32u)Primer_Value->second.lo;
-            if(0);
-            ELEMENT_UUID(MpegAudioDescriptor_BitRate,                   "Bit Rate")
-        }
-    }
-
-    //switch(Code2)
-    //{
-    //    default: GenericSoundEssenceDescriptor();
-    //}
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(MPEGAudioBitRate)
+    ELEMENT_END()
+    SoundDescriptor();
 }
 
 //---------------------------------------------------------------------------
 void File_Mxf::PackageMarkerObject()
 {
-    //switch(Code2)
-    //{
-    //    default:
-                GenerationInterchangeObject();
-    //}
+    GenerationInterchangeObject();
 }
 
 //---------------------------------------------------------------------------
 void File_Mxf::ApplicationPlugInObject()
 {
-    //switch(Code2)
-    //{
-    //    default:
-                GenerationInterchangeObject();
-    //}
+    GenerationInterchangeObject();
 }
 
 //---------------------------------------------------------------------------
 void File_Mxf::ApplicationReferencedObject()
 {
-    //switch(Code2)
-    //{
-    //    default:
-                GenerationInterchangeObject();
-    //}
+    GenerationInterchangeObject();
 }
 
 //---------------------------------------------------------------------------
@@ -7904,65 +8262,38 @@ void File_Mxf::MCALabelSubDescriptor()
     if (Descriptors[InstanceUID].Type==descriptor::Type_Unknown)
         Descriptors[InstanceUID].Type=descriptor::Type_MCALabelSubDescriptor;
 
-    {
-        // Not a short code
-        std::map<int16u, int128u>::iterator Primer_Value=Primer_Values.find(Code2);
-        if (Primer_Value!=Primer_Values.end())
-        {
-            int32u Code_Compare1=Primer_Value->second.hi>>32;
-            int32u Code_Compare2=(int32u)Primer_Value->second.hi;
-            int32u Code_Compare3=Primer_Value->second.lo>>32;
-            int32u Code_Compare4=(int32u)Primer_Value->second.lo;
-            if(0);
-            ELEMENT_UUID(MCAChannelID,                                  "MCA Channel ID")
-            ELEMENT_UUID(MCALabelDictionaryID,                          "MCA Label Dictionary ID")
-            ELEMENT_UUID(MCATagSymbol,                                  "MCA Tag Symbol")
-            ELEMENT_UUID(MCATagName,                                    "MCA Tag Name")
-            ELEMENT_UUID(GroupOfSoundfieldGroupsLinkID,                 "Group Of Soundfield Groups Link ID")
-            ELEMENT_UUID(MCALinkID,                                     "MCA Link ID")
-            ELEMENT_UUID(SoundfieldGroupLinkID,                         "Soundfield Group Link ID")
-            ELEMENT_UUID(MCAPartitionKind,                              "MCA Partition Kind")
-            ELEMENT_UUID(MCAPartitionNumber,                            "MCA Partition Number")
-            ELEMENT_UUID(MCATitle,                                      "MCA Title")
-            ELEMENT_UUID(MCATitleVersion,                               "MCA Title Version")
-            ELEMENT_UUID(MCATitleSubVersion,                            "MCA Title Sub-version")
-            ELEMENT_UUID(MCAEpisode,                                    "MCA Episode")
-            ELEMENT_UUID(MCAAudioContentKind,                           "MCA Audio Content Kind")
-            ELEMENT_UUID(MCAAudioElementKind,                           "MCA Audio Element Kind")
-            ELEMENT_UUID(RFC5646AudioLanguageCode,                      "Secondary Original Extended Spoken Language")
-        }
-    }
-
-    //switch(Code2)
-    //{
-    //    default:
-                GenerationInterchangeObject();
-    //}
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(MCAChannelID)
+    ELEM____UUID_(MCALabelDictionaryID)
+    ELEM____UUID_(MCATagSymbol)
+    ELEM____UUID_(MCATagName)
+    ELEM____UUID_(GroupOfSoundfieldGroupsLinkID)
+    ELEM____UUID_(MCALinkID)
+    ELEM____UUID_(SoundfieldGroupLinkID)
+    ELEM____UUID_(MCAPartitionKind)
+    ELEM____UUID_(MCAPartitionNumber)
+    ELEM____UUID_(MCATitle)
+    ELEM____UUID_(MCATitleVersion)
+    ELEM____UUID_(MCATitleSubVersion)
+    ELEM____UUID_(MCAEpisode)
+    ELEM____UUID_(MCAAudioContentKind)
+    ELEM____UUID_(MCAAudioElementKind)
+    ELEM____UUID_(RFC5646SpokenLanguage)
+    ELEMENT_END()
+    GenerationInterchangeObject();
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::TimedTextDescriptor()
+void File_Mxf::DCTimedTextDescriptor()
 {
-    {
-        std::map<int16u, int128u>::iterator Primer_Value=Primer_Values.find(Code2);
-        if (Primer_Value!=Primer_Values.end())
-        {
-            int32u Code_Compare1=Primer_Value->second.hi>>32;
-            int32u Code_Compare2=(int32u)Primer_Value->second.hi;
-            int32u Code_Compare3=Primer_Value->second.lo>>32;
-            int32u Code_Compare4=(int32u)Primer_Value->second.lo;
-            if(0);
-            ELEMENT_UUID(ResourceID,                            "Resource ID")
-            ELEMENT_UUID(NamespaceURI,                          "Namespace URI")
-            ELEMENT_UUID(UCSEncoding,                           "UCS Encoding")
-        }
-    }
-
-    //switch(Code2)
-    //{
-    //    default:
-                GenericDataEssenceDescriptor();
-    //}
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(ResourceID)
+    ELEM____UUID_(NamespaceURI)
+    ELEM____UUID_(UCSEncoding)
+    ELEMENT_END()
+    DataEssenceDescriptor();
 
     if (Descriptors[InstanceUID].StreamKind==Stream_Max)
     {
@@ -7974,57 +8305,34 @@ void File_Mxf::TimedTextDescriptor()
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::TimedTextResourceSubDescriptor()
+void File_Mxf::DCTimedTextResourceSubDescriptor()
 {
-    //switch(Code2)
-    //{
-    //    default:
-                GenerationInterchangeObject();
-    //}
+    GenerationInterchangeObject();
 }
 
 //---------------------------------------------------------------------------
 void File_Mxf::ContainerConstraintsSubDescriptor()
 {
-    //switch(Code2)
-    //{
-    //    default:
-                GenerationInterchangeObject();
-    //}
+    GenerationInterchangeObject();
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::Mpeg4VisualSubDescriptor()
+void File_Mxf::MPEG4VisualSubDescriptor()
 {
-    if (Code2>=0x8000)
-    {
-        // Not a short code
-        std::map<int16u, int128u>::iterator Primer_Value=Primer_Values.find(Code2);
-        if (Primer_Value!=Primer_Values.end())
-        {
-            int32u Code_Compare1=Primer_Value->second.hi>>32;
-            int32u Code_Compare2=(int32u)Primer_Value->second.hi;
-            int32u Code_Compare3=Primer_Value->second.lo>>32;
-            int32u Code_Compare4=(int32u)Primer_Value->second.lo;
-            if(0);
-            ELEMENT_UUID(Mpeg4VisualDescriptor_SingleSequence,          "Single sequence")
-            ELEMENT_UUID(Mpeg4VisualDescriptor_ConstantBFrames,         "Number of B frames always constant")
-            ELEMENT_UUID(Mpeg4VisualDescriptor_CodedContentType,        "Coded content type")
-            ELEMENT_UUID(Mpeg4VisualDescriptor_LowDelay,                "Low delay")
-            ELEMENT_UUID(Mpeg4VisualDescriptor_ClosedGOP,               "Closed GOP")
-            ELEMENT_UUID(Mpeg4VisualDescriptor_IdenticalGOP,            "Identical GOP")
-            ELEMENT_UUID(Mpeg4VisualDescriptor_MaxGOP,                  "Maximum occurring spacing between I frames")
-            ELEMENT_UUID(Mpeg4VisualDescriptor_BPictureCount,           "Maximum number of B pictures between P or I frames")
-            ELEMENT_UUID(Mpeg4VisualDescriptor_ProfileAndLevel,         "Profile and level")
-            ELEMENT_UUID(Mpeg4VisualDescriptor_BitRate,                 "Maximum bit rate")
-        }
-    }
-
-    //switch(Code2)
-    //{
-    //    default:
-                GenerationInterchangeObject();
-    //}
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(MPEG4VisualSingleSequence)
+    ELEM____UUID_(MPEG4VisualConstantBVOPs)
+    ELEM____UUID_(MPEG4VisualCodedContentType)
+    ELEM____UUID_(MPEG4VisualLowDelay)
+    ELEM____UUID_(MPEG4VisualClosedGOP)
+    ELEM____UUID_(MPEG4VisualIdenticalGOP)
+    ELEM____UUID_(MPEG4VisualMaxGOP)
+    ELEM____UUID_(MPEG4VisualBVOPCount)
+    ELEM____UUID_(MPEG4VisualProfileAndLevel)
+    ELEM____UUID_(MPEG4VisualBitRate)
+    ELEMENT_END()
+    GenerationInterchangeObject();
 }
 
 //---------------------------------------------------------------------------
@@ -8036,6 +8344,13 @@ void File_Mxf::ResourceID()
 
 //---------------------------------------------------------------------------
 void File_Mxf::NamespaceURI()
+{
+    //Parsing
+    Info_UTF16B (Length2, Value,                                "Value"); Element_Info1(Value);
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::TextMIMEMediaType()
 {
     //Parsing
     Info_UTF16B (Length2, Value,                                "Value"); Element_Info1(Value);
@@ -8054,11 +8369,7 @@ void File_Mxf::AudioChannelLabelSubDescriptor()
     if (Descriptors[InstanceUID].Type==descriptor::Type_Unknown)
         Descriptors[InstanceUID].Type=descriptor::Type_AudioChannelLabelSubDescriptor;
 
-    //switch(Code2)
-    //{
-    //    default:
-                MCALabelSubDescriptor();
-    //}
+    MCALabelSubDescriptor();
 }
 
 //---------------------------------------------------------------------------
@@ -8067,11 +8378,7 @@ void File_Mxf::SoundfieldGroupLabelSubDescriptor()
     if (Descriptors[InstanceUID].Type==descriptor::Type_Unknown)
         Descriptors[InstanceUID].Type=descriptor::Type_SoundfieldGroupLabelSubDescriptor;
 
-    //switch(Code2)
-    //{
-    //    default:
-                MCALabelSubDescriptor();
-    //}
+    MCALabelSubDescriptor();
 }
 
 //---------------------------------------------------------------------------
@@ -8080,60 +8387,43 @@ void File_Mxf::GroupOfSoundfieldGroupsLabelSubDescriptor()
     if (Descriptors[InstanceUID].Type==descriptor::Type_Unknown)
         Descriptors[InstanceUID].Type=descriptor::Type_GroupOfSoundfieldGroupsLabelSubDescriptor;
 
-     if (Code2>=0x8000)
-    {
-        // Not a short code
-        std::map<int16u, int128u>::iterator Primer_Value=Primer_Values.find(Code2);
-        if (Primer_Value!=Primer_Values.end())
-        {
-            MCALabelSubDescriptor();
-
-            return;
-        }
-    }
-
-   //switch(Code2)
-    //{
-    //    default:
-                MCALabelSubDescriptor();
-    //}
+    MCALabelSubDescriptor();
 }
 
 //---------------------------------------------------------------------------
 void File_Mxf::AVCSubDescriptor()
 {
-    {
-        std::map<int16u, int128u>::iterator Primer_Value=Primer_Values.find(Code2);
-        if (Primer_Value!=Primer_Values.end())
-        {
-            int32u Code_Compare1=Primer_Value->second.hi>>32;
-            int32u Code_Compare2=(int32u)Primer_Value->second.hi;
-            int32u Code_Compare3=Primer_Value->second.lo>>32;
-            int32u Code_Compare4=(int32u)Primer_Value->second.lo;
-            if(0);
-            ELEMENT_UUID(AVCDescriptor_ConstantBFrames,                 "Number of B frames always constant")
-            ELEMENT_UUID(AVCDescriptor_CodedContentType,                "Coded content type")
-            ELEMENT_UUID(AVCDescriptor_ClosedGOP,                       "Closed GOP")
-            ELEMENT_UUID(AVCDescriptor_IdenticalGOP,                    "Identical GOP")
-            ELEMENT_UUID(AVCDescriptor_MaxGOP,                          "Maximum occurring spacing between I frames")
-            ELEMENT_UUID(AVCDescriptor_BPictureCount,                   "Maximum number of B pictures between P or I frames")
-            ELEMENT_UUID(AVCDescriptor_Profile,                         "Profile")
-            ELEMENT_UUID(AVCDescriptor_MaximumBitRate,                  "Maximum bit rate")
-            ELEMENT_UUID(AVCDescriptor_ProfileConstraint,               "Profile Constraint")
-            ELEMENT_UUID(AVCDescriptor_Level,                           "Level")
-            ELEMENT_UUID(AVCDescriptor_DecodingDelay,                   "Decoding delay")
-            ELEMENT_UUID(AVCDescriptor_MaximumRefFrames,                "Maximum reference frames")
-            ELEMENT_UUID(AVCDescriptor_SequenceParameterSetFlag,        "Sequence parameter set flag")
-            ELEMENT_UUID(AVCDescriptor_PictureParameterSetFlag,         "Picture parameter set flag")
-            ELEMENT_UUID(AVCDescriptor_AverageBitRate,                  "Average bit rate")
-        }
-    }
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(AVCConstantBPictureFlag)
+    ELEM____UUID_(AVCCodedContentKind)
+    ELEM____UUID_(AVCClosedGOPIndicator)
+    ELEM____UUID_(AVCIdenticalGOPIndicator)
+    ELEM____UUID_(AVCMaximumGOPSize)
+    ELEM____UUID_(AVCMaximumBPictureCount)
+    ELEM____UUID_(AVCProfile)
+    ELEM____UUID_(AVCMaximumBitRate)
+    ELEM____UUID_(AVCProfileConstraint)
+    ELEM____UUID_(AVCLevel)
+    ELEM____UUID_(AVCDecodingDelay)
+    ELEM____UUID_(AVCMaximumRefFrames)
+    ELEM____UUID_(AVCSequenceParameterSetFlag)
+    ELEM____UUID_(AVCPictureParameterSetFlag)
+    ELEM____UUID_(AVCAverageBitRate)
+    ELEMENT_END()
+    GenerationInterchangeObject();
+}
 
-    //switch(Code2)
-    //{
-    //    default:
-                GenerationInterchangeObject();
-    //}
+//---------------------------------------------------------------------------
+void File_Mxf::IABEssenceDescriptor()
+{
+    SoundDescriptor();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::IABSoundfieldLabelSubDescriptor()
+{
+    MCALabelSubDescriptor();
 }
 
 //---------------------------------------------------------------------------
@@ -8190,9 +8480,8 @@ void File_Mxf::GroupOfSoundfieldGroupsLinkID()
         return;
 
     //Parsing
-    if (Vector(16)==(int32u)-1)
-        return;
-    while (Element_Offset<Element_Size)
+    VECTOR(16);
+    for (int32u i=0; i<Count; i++)
     {
         int128u Data;
         Get_UUID(Data,                                          "Value");
@@ -8320,6 +8609,17 @@ void File_Mxf::MCAAudioElementKind()
 }
 
 //---------------------------------------------------------------------------
+void File_Mxf::TextDataDescription()
+{
+    //Parsing
+    Ztring Value;
+    Get_UTF16B (Length2, Value,                                 "Value"); Element_Info1(Value);
+
+    if (Value.find(__T(".dolby.com/"))!=string::npos && Value.find(__T(' '))==string::npos) // found in some Dolby Vision files
+        Descriptors[InstanceUID].Infos["CodecID"]=Value;
+}
+
+//---------------------------------------------------------------------------
 void File_Mxf::Filler()
 {
     #if MEDIAINFO_TRACE
@@ -8346,7 +8646,7 @@ void File_Mxf::Filler()
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::TerminatingFiller()
+void File_Mxf::TerminatingFillerData()
 {
     #if MEDIAINFO_TRACE
         if (Trace_Activated)
@@ -8371,7 +8671,7 @@ void File_Mxf::TerminatingFiller()
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::XmlDocumentText()
+void File_Mxf::XMLDocumentText_Indirect()
 {
     Skip_XX(Element_Size,                                       "XML data");
 }
@@ -8382,9 +8682,8 @@ void File_Mxf::SubDescriptors()
     Descriptors[InstanceUID].SubDescriptors.clear();
 
     //Parsing
-    if (Vector(16)==(int32u)-1)
-        return;
-    while (Element_Offset<Element_Size)
+    VECTOR(16);
+    for (int32u i=0; i<Count; i++)
     {
         int128u Data;
         Get_UUID(Data,                                          "Sub Descriptor");
@@ -8396,67 +8695,67 @@ void File_Mxf::SubDescriptors()
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::LensUnitMetadata()
+void File_Mxf::LensUnitAcquisitionMetadata()
 {
     if (AcquisitionMetadataLists.empty())
         AcquisitionMetadataLists.resize(0x10000);
 
-    switch(Code2)
-    {
-        ELEMENT(8000, LensUnitMetadata_IrisFNumber,                         "Iris (F)")
-        ELEMENT(8001, LensUnitMetadata_FocusPositionFromImagePlane,         "Focus Position (Image Plane)")
-        ELEMENT(8002, LensUnitMetadata_FocusPositionFromFrontLensVertex,    "Focus Position (Front Lens Vertex)")
-        ELEMENT(8003, LensUnitMetadata_MacroSetting,                        "Macro Setting")
-        ELEMENT(8004, LensUnitMetadata_LensZoom35mmStillCameraEquivalent,   "LensZoom (35mm Still Camera Equivalent")
-        ELEMENT(8005, LensUnitMetadata_LensZoomActualFocalLength,           "LensZoom (Actual Focal Length)")
-        ELEMENT(8006, LensUnitMetadata_OpticalExtenderMagnification,        "Optical Extender Magnification")
-        ELEMENT(8007, LensUnitMetadata_LensAttributes,                      "Lens Attributes")
-        ELEMENT(8008, LensUnitMetadata_IrisTNumber,                         "Iris (T)")
-        ELEMENT(8009, LensUnitMetadata_IrisRingPosition,                    "Iris Ring Position")
-        ELEMENT(800A, LensUnitMetadata_FocusRingPosition,                   "Focus Ring Position")
-        ELEMENT(800B, LensUnitMetadata_ZoomRingPosition,                    "Zoom Ring Position")
-        default:
-                    GenerationInterchangeObject();
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(8000, LensUnitAcquisitionMetadata_IrisFNumber)
+    ELEMENT(8001, LensUnitAcquisitionMetadata_FocusPositionFromImagePlane)
+    ELEMENT(8002, LensUnitAcquisitionMetadata_FocusPositionFromFrontLensVertex)
+    ELEMENT(8003, LensUnitAcquisitionMetadata_MacroSetting)
+    ELEMENT(8004, LensUnitAcquisitionMetadata_LensZoom35mmStillCameraEquivalent)
+    ELEMENT(8005, LensUnitAcquisitionMetadata_LensZoomActualFocalLength)
+    ELEMENT(8006, LensUnitAcquisitionMetadata_OpticalExtenderMagnification)
+    ELEMENT(8007, LensUnitAcquisitionMetadata_LensAttributes)
+    ELEMENT(8008, LensUnitAcquisitionMetadata_IrisTNumber)
+    ELEMENT(8009, LensUnitAcquisitionMetadata_IrisRingPosition)
+    ELEMENT(800A, LensUnitAcquisitionMetadata_FocusRingPosition)
+    ELEMENT(800B, LensUnitAcquisitionMetadata_ZoomRingPosition)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    GenerationInterchangeObject();
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::CameraUnitMetadata()
+void File_Mxf::CameraUnitAcquisitionMetadata()
 {
     if (AcquisitionMetadataLists.empty())
         AcquisitionMetadataLists.resize(0x10000);
 
-    switch(Code2)
-    {
-        ELEMENT(3210, CameraUnitMetadata_CaptureGammaEquation,              "Capture Gamma Equation")
-        ELEMENT(8100, CameraUnitMetadata_AutoExposureMode,                  "AutoExposure Mode")
-        ELEMENT(8101, CameraUnitMetadata_AutoFocusSensingAreaSetting,       "Auto Focus Sensing Area Setting")
-        ELEMENT(8102, CameraUnitMetadata_ColorCorrectionFilterWheelSetting, "Color Correction Filter Wheel Setting")
-        ELEMENT(8103, CameraUnitMetadata_NeutralDensityFilterWheelSetting,  "Neutral Density Filter Wheel Setting")
-        ELEMENT(8104, CameraUnitMetadata_ImageSensorDimensionEffectiveWidth,"Imager Dimension (Effective Width)")
-        ELEMENT(8105, CameraUnitMetadata_ImageSensorDimensionEffectiveHeight,"Imager Dimension (Effective Height)")
-        ELEMENT(8106, CameraUnitMetadata_CaptureFrameRate,                  "Capture Frame Rate")
-        ELEMENT(8107, CameraUnitMetadata_ImageSensorReadoutMode,            "Image Sensor Readout Mode")
-        ELEMENT(8108, CameraUnitMetadata_ShutterSpeed_Angle,                "Shutter Speed (Angle)")
-        ELEMENT(8109, CameraUnitMetadata_ShutterSpeed_Time,                 "Shutter Speed (Time)")
-        ELEMENT(810A, CameraUnitMetadata_CameraMasterGainAdjustment,        "Camera Master Gain Adjustment")
-        ELEMENT(810B, CameraUnitMetadata_ISOSensitivity,                    "ISO Sensitivity")
-        ELEMENT(810C, CameraUnitMetadata_ElectricalExtenderMagnification,   "Electrical Extender Magnification")
-        ELEMENT(810D, CameraUnitMetadata_AutoWhiteBalanceMode,              "Auto White Balance Mode")
-        ELEMENT(810E, CameraUnitMetadata_WhiteBalance,                      "White Balance")
-        ELEMENT(810F, CameraUnitMetadata_CameraMasterBlackLevel,            "Camera Master BlackLevel")
-        ELEMENT(8110, CameraUnitMetadata_CameraKneePoint,                   "Camera Knee Point")
-        ELEMENT(8111, CameraUnitMetadata_CameraKneeSlope,                   "Camera Knee Slope")
-        ELEMENT(8112, CameraUnitMetadata_CameraLuminanceDynamicRange,       "Camera Luminance Dynamic Range")
-        ELEMENT(8113, CameraUnitMetadata_CameraSettingFileURI,              "Camera Setting File URI")
-        ELEMENT(8114, CameraUnitMetadata_CameraAttributes,                  "Camera Attributes")
-        ELEMENT(8115, CameraUnitMetadata_ExposureIndexofPhotoMeter,         "Exposure Index of Photo Meter")
-        ELEMENT(8116, CameraUnitMetadata_GammaForCDL,                       "Gamma for CDL")
-        ELEMENT(8117, CameraUnitMetadata_ASC_CDL_V12,                       "ASC CDL V1.2")
-        ELEMENT(8118, CameraUnitMetadata_ColorMatrix,                       "ColorMatrix")
-        default:
-                    GenerationInterchangeObject();
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(3210, CameraUnitAcquisitionMetadata_TransferCharacteristic)
+    ELEMENT(3219, CameraUnitAcquisitionMetadata_ColorPrimaries)
+    ELEMENT(321A, CameraUnitAcquisitionMetadata_CodingEquations)
+    ELEMENT(8100, CameraUnitAcquisitionMetadata_AutoExposureMode)
+    ELEMENT(8101, CameraUnitAcquisitionMetadata_AutoFocusSensingAreaSetting)
+    ELEMENT(8102, CameraUnitAcquisitionMetadata_ColorCorrectionFilterWheelSetting)
+    ELEMENT(8103, CameraUnitAcquisitionMetadata_NeutralDensityFilterWheelSetting)
+    ELEMENT(8104, CameraUnitAcquisitionMetadata_ImageSensorDimensionEffectiveWidth)
+    ELEMENT(8105, CameraUnitAcquisitionMetadata_ImageSensorDimensionEffectiveHeight)
+    ELEMENT(8106, CameraUnitAcquisitionMetadata_CaptureFrameRate)
+    ELEMENT(8107, CameraUnitAcquisitionMetadata_ImageSensorReadoutMode)
+    ELEMENT(8108, CameraUnitAcquisitionMetadata_ShutterSpeed_Angle)
+    ELEMENT(8109, CameraUnitAcquisitionMetadata_ShutterSpeed_Time)
+    ELEMENT(810A, CameraUnitAcquisitionMetadata_CameraMasterGainAdjustment)
+    ELEMENT(810B, CameraUnitAcquisitionMetadata_ISOSensitivity)
+    ELEMENT(810C, CameraUnitAcquisitionMetadata_ElectricalExtenderMagnification)
+    ELEMENT(810D, CameraUnitAcquisitionMetadata_AutoWhiteBalanceMode)
+    ELEMENT(810E, CameraUnitAcquisitionMetadata_WhiteBalance)
+    ELEMENT(810F, CameraUnitAcquisitionMetadata_CameraMasterBlackLevel)
+    ELEMENT(8110, CameraUnitAcquisitionMetadata_CameraKneePoint)
+    ELEMENT(8111, CameraUnitAcquisitionMetadata_CameraKneeSlope)
+    ELEMENT(8112, CameraUnitAcquisitionMetadata_CameraLuminanceDynamicRange)
+    ELEMENT(8113, CameraUnitAcquisitionMetadata_CameraSettingFileURI)
+    ELEMENT(8114, CameraUnitAcquisitionMetadata_CameraAttributes)
+    ELEMENT(8115, CameraUnitAcquisitionMetadata_ExposureIndexofPhotoMeter)
+    ELEMENT(8116, CameraUnitAcquisitionMetadata_GammaForCDL)
+    ELEMENT(8117, CameraUnitAcquisitionMetadata_ASC_CDL_V12)
+    ELEMENT(8118, CameraUnitAcquisitionMetadata_ColorMatrix)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    GenerationInterchangeObject();
 }
 
 //---------------------------------------------------------------------------
@@ -8468,36 +8767,32 @@ void File_Mxf::UserDefinedAcquisitionMetadata()
         AcquisitionMetadata_Sony_CalibrationType = (int8u)-1;
     }
 
-    switch(Code2)
+    ELEMENT_BEGIN()
+    ELEMENT(E000, UserDefinedAcquisitionMetadata_UdamSetIdentifier)
+    default:
     {
-        ELEMENT(E000, UserDefinedAcquisitionMetadata_UdamSetIdentifier,  "UDAM Set Identifier")
-        default:
-                if (UserDefinedAcquisitionMetadata_UdamSetIdentifier_IsSony)
-                    switch(Code2)
-                    {
-                        ELEMENT(8007, LensUnitMetadata_LensAttributes,          "Lens Attributes")
-                        ELEMENT(E101, UserDefinedAcquisitionMetadata_Sony_E101, "Effective Marker Coverage")
-                        ELEMENT(E102, UserDefinedAcquisitionMetadata_Sony_E102, "Effective Marker Aspect Ratio")
-                        ELEMENT(E103, UserDefinedAcquisitionMetadata_Sony_E103, "Camera Process Discrimination Code")
-                        ELEMENT(E104, UserDefinedAcquisitionMetadata_Sony_E104, "Rotary Shutter Mode")
-                        ELEMENT(E105, UserDefinedAcquisitionMetadata_Sony_E105, "Raw Black Code Value")
-                        ELEMENT(E106, UserDefinedAcquisitionMetadata_Sony_E106, "Raw Gray Code Value")
-                        ELEMENT(E107, UserDefinedAcquisitionMetadata_Sony_E107, "Raw White Code Value")
-                        ELEMENT(E109, UserDefinedAcquisitionMetadata_Sony_E109, "Monitoring Descriptions")
-                        ELEMENT(E10B, UserDefinedAcquisitionMetadata_Sony_E10B, "Monitoring Base Curve")
-                        ELEMENT(E201, UserDefinedAcquisitionMetadata_Sony_E201, "Cooke Protocol Binary Metadata")
-                        ELEMENT(E202, UserDefinedAcquisitionMetadata_Sony_E202, "Cooke Protocol User Metadata")
-                        ELEMENT(E203, UserDefinedAcquisitionMetadata_Sony_E203, "Cooke Protocol Calibration Type")
-                        default:
-                                    GenerationInterchangeObject();
-                    }
-                else
-                    GenerationInterchangeObject();
-    }
+    if (UserDefinedAcquisitionMetadata_UdamSetIdentifier_IsSony)
+        switch(Code2)
+        {
+    ELEMENT(8007, LensUnitAcquisitionMetadata_LensAttributes)
+    ELEMENT(E101, UserDefinedAcquisitionMetadata_Sony_E101) //Effective Marker Coverage
+    ELEMENT(E102, UserDefinedAcquisitionMetadata_Sony_E102) //Effective Marker Aspect Ratio
+    ELEMENT(E103, UserDefinedAcquisitionMetadata_Sony_E103) //Camera Process Discrimination Code
+    ELEMENT(E104, UserDefinedAcquisitionMetadata_Sony_E104) //Rotary Shutter Mode
+    ELEMENT(E105, UserDefinedAcquisitionMetadata_Sony_E105) //Raw Black Code Value
+    ELEMENT(E106, UserDefinedAcquisitionMetadata_Sony_E106) //Raw Gray Code Value
+    ELEMENT(E107, UserDefinedAcquisitionMetadata_Sony_E107) //Raw White Code Value
+    ELEMENT(E109, UserDefinedAcquisitionMetadata_Sony_E109) //Monitoring Descriptions
+    ELEMENT(E10B, UserDefinedAcquisitionMetadata_Sony_E10B) //Monitoring Base Curve
+    ELEMENT(E201, UserDefinedAcquisitionMetadata_Sony_E201) //Cooke Protocol Binary Metadata
+    ELEMENT(E202, UserDefinedAcquisitionMetadata_Sony_E202) //Cooke Protocol User Metadata
+    ELEMENT(E203, UserDefinedAcquisitionMetadata_Sony_E203) //Cooke Protocol Calibration Type
+    ELEMENT_END()
+    GenerationInterchangeObject();
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::SDTI_SystemMetadataPack() //SMPTE 385M + 326M
+void File_Mxf::SDTISystemMetadataPack() //SMPTE 385M + 326M
 {
     #if MEDIAINFO_TRACE
         if (Trace_Activated)
@@ -8520,7 +8815,7 @@ void File_Mxf::SDTI_SystemMetadataPack() //SMPTE 385M + 326M
 
     //Parsing
     int8u SMB, CPR_Rate, Format;
-    bool SMB_UL_Present, SMB_CreationTimeStamp, SMB_UserTimeStamp, CPR_DropFrame;
+    bool SMB_UL_Present, SMB_CreationTimeStamp, SMB_UserTimeStamp, CPR_1_1001;
     Get_B1 (SMB,                                                "System Metadata Bitmap");
         Skip_Flags(SMB, 7,                                      "FEC Active");
         Get_Flags (SMB, 6, SMB_UL_Present,                      "SMPTE Label");
@@ -8534,7 +8829,7 @@ void File_Mxf::SDTI_SystemMetadataPack() //SMPTE 385M + 326M
     Element_Begin1("Content Package Rate");
     Skip_S1(2,                                                  "Reserved");
     Get_S1 (5, CPR_Rate,                                        "Package Rate"); //See SMPTE 326M
-    Get_SB (   CPR_DropFrame,                                   "1.001 Flag");
+    Get_SB (   CPR_1_1001,                                      "1.001 Flag");
     Element_End0();
     Element_Begin1("Content Package Type");
     Skip_S1(3,                                                  "Stream Status");
@@ -8547,23 +8842,19 @@ void File_Mxf::SDTI_SystemMetadataPack() //SMPTE 385M + 326M
     Skip_B2(                                                    "continuity count");
 
     //Some computing
+    static int8u FrameRates_List[3] = { 24, 25, 30 };
     int8u  FrameRate;
     int8u  RepetitionMaxCount;
-    switch (CPR_Rate) //See SMPTE 326M
+    if (CPR_Rate && CPR_Rate<=0x0C) //See SMPTE 326M)
     {
-        case 0x01 : FrameRate=24;  RepetitionMaxCount=0; break;
-        case 0x02 : FrameRate=25;  RepetitionMaxCount=0; break;
-        case 0x03 : FrameRate=30;  RepetitionMaxCount=0; break;
-        case 0x04 : FrameRate=48;  RepetitionMaxCount=1; break;
-        case 0x05 : FrameRate=50;  RepetitionMaxCount=1; break;
-        case 0x06 : FrameRate=60;  RepetitionMaxCount=1; break;
-        case 0x07 : FrameRate=72;  RepetitionMaxCount=2; break;
-        case 0x08 : FrameRate=75;  RepetitionMaxCount=2; break;
-        case 0x09 : FrameRate=90;  RepetitionMaxCount=2; break;
-        case 0x0A : FrameRate=96;  RepetitionMaxCount=3; break;
-        case 0x0B : FrameRate=100; RepetitionMaxCount=3; break;
-        case 0x0C : FrameRate=120; RepetitionMaxCount=3; break;
-        default   : FrameRate=0;   RepetitionMaxCount=0; break;
+        CPR_Rate--;
+        RepetitionMaxCount=CPR_Rate/3;
+        FrameRate=FrameRates_List[CPR_Rate%3]*(RepetitionMaxCount+1);
+    }
+    else
+    {
+        FrameRate=0;
+        RepetitionMaxCount=0;
     }
 
     //Parsing
@@ -8585,63 +8876,66 @@ void File_Mxf::SDTI_SystemMetadataPack() //SMPTE 385M + 326M
         bool  DropFrame;
         BS_Begin();
 
-        Skip_SB(                                                "CF - Color fame");
+        #if MEDIAINFO_ADVANCED
+            int32u BG;
+            bool ColorFrame, FieldPhaseBgf0, Bgf0Bgf2, Bgf1, Bgf2FieldPhase;
+            #define Get_TCB(_1,_2)      Get_SB(_1,_2)
+            #define Get_TC4(_1,_2)      Get_L4(_1,_2)
+        #else
+            #define Get_TCB(_1,_2)      Skip_SB(_2)
+            #define Get_TC4(_1,_2)      Skip_L4(_2)
+        #endif
+
+        Get_TCB(   ColorFrame,                                  "CF - Color fame");
         Get_SB (   DropFrame,                                   "DP - Drop frame");
         Get_S1 (2, Frames_Tens,                                 "Frames (Tens)");
         Get_S1 (4, Frames_Units,                                "Frames (Units)");
 
-        Skip_SB(                                                "FP - Field Phase / BGF0");
+        Get_TCB(   FieldPhaseBgf0,                              "FP - Field Phase / BGF0");
         Get_S1 (3, Seconds_Tens,                                "Seconds (Tens)");
         Get_S1 (4, Seconds_Units,                               "Seconds (Units)");
 
-        Skip_SB(                                                "BGF0 / BGF2");
+        Get_TCB(   Bgf0Bgf2,                                    "BGF0 / BGF2");
         Get_S1 (3, Minutes_Tens,                                "Minutes (Tens)");
         Get_S1 (4, Minutes_Units,                               "Minutes (Units)");
 
-        Skip_SB(                                                "BGF2 / Field Phase");
-        Skip_SB(                                                "BGF1");
+        Get_TCB(   Bgf2FieldPhase,                              "BGF2 / Field Phase");
+        Get_TCB(   Bgf1,                                        "BGF1");
         Get_S1 (2, Hours_Tens,                                  "Hours (Tens)");
         Get_S1 (4, Hours_Units,                                 "Hours (Units)");
 
-        Skip_S1(4,                                              "BG2");
-        Skip_S1(4,                                              "BG1");
-
-        Skip_S1(4,                                              "BG4");
-        Skip_S1(4,                                              "BG3");
-
-        Skip_S1(4,                                              "BG6");
-        Skip_S1(4,                                              "BG5");
-
-        Skip_S1(4,                                              "BG8");
-        Skip_S1(4,                                              "BG7");
-
         BS_End();
+
+        Get_TC4(   BG,                                          "BG");
+
+        #undef Get_TCB
+        #undef Get_TC4
 
         //TimeCode
         TimeCode TimeCode_Current(  Hours_Tens  *10+Hours_Units,
                                     Minutes_Tens*10+Minutes_Units,
                                     Seconds_Tens*10+Seconds_Units,
-                                    Frames_Tens *10+Frames_Units,
-                                    FrameRate/(RepetitionMaxCount+1),
-                                    DropFrame,
-                                    RepetitionMaxCount?true:false);
+                                    (Frames_Tens *10+Frames_Units)*(RepetitionMaxCount+1),
+                                    FrameRate-1,
+                                    TimeCode::DropFrame(DropFrame).FPS1001(CPR_1_1001));
+        TimeCode_Current.Set1001fps(CPR_1_1001);
         if (RepetitionMaxCount)
         {
-            if (SDTI_TimeCode_Previous.IsValid() && TimeCode_Current==SDTI_TimeCode_Previous)
+            if (SDTI_TimeCode_Previous.IsSet() && TimeCode_Current==SDTI_TimeCode_Previous)
             {
                 SDTI_TimeCode_RepetitionCount++;
-                TimeCode_Current++;
-                if (!SDTI_TimeCode_StartTimecode.IsValid() && SDTI_TimeCode_RepetitionCount>=RepetitionMaxCount)
+                ++TimeCode_Current;
+                if (!SDTI_TimeCode_StartTimecode.IsSet() && SDTI_TimeCode_RepetitionCount>=RepetitionMaxCount)
                     SDTI_TimeCode_StartTimecode=SDTI_TimeCode_Previous; //The first time code was the first one of the repetition sequence
             }
             else
             {
-                if (!SDTI_TimeCode_StartTimecode.IsValid() && SDTI_TimeCode_Previous.IsValid())
+                if (!SDTI_TimeCode_StartTimecode.IsSet() && SDTI_TimeCode_Previous.IsSet())
                 {
                     SDTI_TimeCode_StartTimecode=SDTI_TimeCode_Previous;
                     while(SDTI_TimeCode_RepetitionCount<RepetitionMaxCount)
                     {
-                        SDTI_TimeCode_StartTimecode++;
+                        ++SDTI_TimeCode_StartTimecode;
                         SDTI_TimeCode_RepetitionCount++;
                     }
                 }
@@ -8649,13 +8943,46 @@ void File_Mxf::SDTI_SystemMetadataPack() //SMPTE 385M + 326M
                 SDTI_TimeCode_Previous=TimeCode_Current;
             }
         }
-        else if (!SDTI_TimeCode_StartTimecode.IsValid())
+        else if (!SDTI_TimeCode_StartTimecode.IsSet())
             SDTI_TimeCode_StartTimecode=TimeCode_Current;
 
         Element_Info1(Ztring().From_UTF8(TimeCode_Current.ToString().c_str()));
         Element_Level--;
         Element_Info1(Ztring().From_UTF8(TimeCode_Current.ToString().c_str()));
         Element_Level++;
+
+        #if MEDIAINFO_ADVANCED
+            if (Config->TimeCode_Dumps)
+            {
+                auto id=string("SDTI");
+                auto& TimeCode_Dump=(*Config->TimeCode_Dumps)[id];
+                if (TimeCode_Dump.List.empty())
+                {
+                    TimeCode_Dump.Attributes_First+=" id=\""+id+"\" format=\"smpte-st326\"";
+                    if (FrameRate)
+                    {
+                        TimeCode_Dump.Attributes_First+=" frame_rate=\""+to_string(FrameRate);
+                        if (CPR_1_1001)
+                            TimeCode_Dump.Attributes_First+="000/1001";
+                        TimeCode_Dump.Attributes_First+='\"';
+                    }
+                    TimeCode_Dump.Attributes_Last+=" fp=\"0\" bgf=\"0\" bg=\"0\"";
+                }
+                TimeCode CurrentTC(Hours_Tens*10+Hours_Units, Minutes_Tens*10+Minutes_Units, Seconds_Tens*10+Seconds_Units, Frames_Tens*10+Frames_Units, TimeCode_Dump.FramesMax, TimeCode::DropFrame(DropFrame).FPS1001(CPR_1_1001));
+                TimeCode_Dump.List+="    <tc v=\""+CurrentTC.ToString()+'\"';
+                if (FieldPhaseBgf0)
+                    TimeCode_Dump.List+=" fp=\"1\"";
+                if (Bgf0Bgf2 || Bgf1 || Bgf2FieldPhase)
+                    TimeCode_Dump.List+=" bgf=\""+to_string((Bgf2FieldPhase<<2)|(Bgf1<<1)|(Bgf2FieldPhase<<0))+"\"";
+                if (BG)
+                    TimeCode_Dump.List+=" bgf=\""+to_string(BG)+"\"";
+                if (TimeCode_Dump.LastTC.IsValid() && TimeCode_Dump.LastTC.GetFramesMax() && CurrentTC!=TimeCode_Dump.LastTC+1)
+                    TimeCode_Dump.List+=" nc=\"1\"";
+                TimeCode_Dump.LastTC=CurrentTC;
+                TimeCode_Dump.List+="/>\n";
+                TimeCode_Dump.FrameCount++;
+            }
+        #endif //MEDIAINFO_ADVANCED
 
         Element_End0();
 
@@ -8675,7 +9002,7 @@ void File_Mxf::SDTI_SystemMetadataPack() //SMPTE 385M + 326M
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::SDTI_PackageMetadataSet()
+void File_Mxf::SDTIPackageMetadataSet()
 {
     #if MEDIAINFO_TRACE
         if (Trace_Activated)
@@ -8738,7 +9065,7 @@ void File_Mxf::SDTI_PackageMetadataSet()
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::SDTI_PictureMetadataSet()
+void File_Mxf::SDTIPictureMetadataSet()
 {
     Skip_XX(Element_Size,                                       "Data");
 
@@ -8748,7 +9075,7 @@ void File_Mxf::SDTI_PictureMetadataSet()
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::SDTI_SoundMetadataSet()
+void File_Mxf::SDTISoundMetadataSet()
 {
     Skip_XX(Element_Size,                                       "Data");
 
@@ -8758,7 +9085,7 @@ void File_Mxf::SDTI_SoundMetadataSet()
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::SDTI_DataMetadataSet()
+void File_Mxf::SDTIDataMetadataSet()
 {
     Skip_XX(Element_Size,                                       "Data");
 
@@ -8768,7 +9095,7 @@ void File_Mxf::SDTI_DataMetadataSet()
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::SDTI_ControlMetadataSet()
+void File_Mxf::SDTIControlMetadataSet()
 {
     Skip_XX(Element_Size,                                       "Data");
 
@@ -8778,29 +9105,33 @@ void File_Mxf::SDTI_ControlMetadataSet()
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::Dolby_PHDRImageMetadataItem()
+void File_Mxf::PHDRImageMetadataItem()
 {
     //Parsing
     Skip_String(Element_Size,                                   "Data");
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::Dolby_PHDRMetadataTrackSubDescriptor()
+void File_Mxf::ISXDDataEssenceDescriptor()
 {
-    {
-        std::map<int16u, int128u>::iterator Primer_Value=Primer_Values.find(Code2);
-        if (Primer_Value!=Primer_Values.end())
-        {
-            int32u Code_Compare1=Primer_Value->second.hi>>32;
-            int32u Code_Compare2=(int32u)Primer_Value->second.hi;
-            int32u Code_Compare3=Primer_Value->second.lo>>32;
-            int32u Code_Compare4=(int32u)Primer_Value->second.lo;
-            if(0);
-            ELEMENT_UUID(Dolby_DataDefinition,                          "Dolby Data Definition")
-            ELEMENT_UUID(Dolby_SourceTrackID,                           "Dolby Source Track ID")
-            ELEMENT_UUID(Dolby_SimplePayloadSID,                        "Dolby Simple Payload SID")
-        }
-    }
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(DolbyNamespaceURI)
+    ELEMENT_END()
+
+    DataEssenceDescriptor();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::PHDRMetadataTrackSubDescriptor()
+{
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(PHDRDataDefinition)
+    ELEM____UUID_(PHDRSourceTrackID)
+    ELEM____UUID_(PHDRSimplePayloadSID)
+    ELEMENT_END()
+    GenerationInterchangeObject();
 
     if (Descriptors[InstanceUID].StreamKind==Stream_Max)
     {
@@ -8812,42 +9143,89 @@ void File_Mxf::Dolby_PHDRMetadataTrackSubDescriptor()
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::Omneon_010201010100()
+void File_Mxf::OmneonVideoNetworksDescriptiveMetadataLinks()
 {
-    //Parsing
-    switch(Code2)
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(OmneonVideoNetworksDescriptiveMetadataItems)
+    ELEMENT_END()
+    GenerationInterchangeObject();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::OmneonVideoNetworksDescriptiveMetadataData()
+{
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(ItemName_ISO7)
+    ELEM____UUID_(ItemName)
+    ELEM____UUID_(ItemValue_ISO7)
+    ELEM____UUID_(ItemValue)
+    ELEMENT_END()
+    GenerationInterchangeObject();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::OmneonVideoNetworksDescriptiveMetadataItems()
+{
+    VECTOR(16);
+    for (int32u i=0; i<Count; i++)
     {
-        ELEMENT(8001, Omneon_010201010100_8001,                 "Omneon .80.01")
-        ELEMENT(8003, Omneon_010201010100_8003,                 "Omneon .80.03")
-        default: GenerationInterchangeObject();
+        int128u Data;
+        Get_UUID(Data,                                          "Package");
+
+        //Filling
+        DMOmneonLinks[InstanceUID].Links.push_back(Data);
     }
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::Omneon_010201020100()
+void File_Mxf::HdrVividMetadataTrackSubDescriptor()
+{
+    ELEMENT_BEGIN()
+    ELEMENT_MIDDLE()
+    ELEM____UUID_(HdrVividDataDefinition)
+    ELEM____UUID_(HdrVividSourceTrackID)
+    ELEM____UUID_(HdrVividSimplePayloadSID)
+    ELEMENT_END()
+    GenerationInterchangeObject();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::HdrVividDataDefinition()
+{
+    Info_UL(Data,                                               "Data", nullptr); Element_Info1(Ztring().From_UUID(Data));
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::HdrVividSourceTrackID()
 {
     //Parsing
-    switch(Code2)
-    {
-        ELEMENT(8002, Omneon_010201020100_8002,                 "Omneon .80.02")
-        ELEMENT(8003, Omneon_010201020100_8003,                 "Omneon .80.03")
-        ELEMENT(8004, Omneon_010201020100_8004,                 "Omneon .80.04")
-        ELEMENT(8005, Omneon_010201020100_8005,                 "Omneon .80.05")
-        ELEMENT(8006, Omneon_010201020100_8006,                 "Omneon .80.06")
-        default: GenerationInterchangeObject();
-    }
+    Info_B4(Data,                                               "Data"); Element_Info1(Data);
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::HdrVividSimplePayloadSID()
+{
+    //Parsing
+    Info_B4(Data,                                               "Data"); Element_Info1(Data);
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::HdrVividMetadataItem()
+{
+    Skip_XX(Element_Size,                                       "HDR Vivid data");
 }
 
 //---------------------------------------------------------------------------
 void File_Mxf::TimelineTrack()
 {
-    //Parsing
-    switch(Code2)
-    {
-        ELEMENT(4B01, Track_EditRate,                           "EditRate")
-        ELEMENT(4B02, Track_Origin,                             "Origin")
-        default: GenericTrack();
-    }
+    ELEMENT_BEGIN()
+    ELEMENT(4B01, Track_EditRate)
+    ELEMENT(4B02, Track_Origin)
+    ELEMENT_MIDDLE()
+    ELEMENT_END()
+    GenericTrack();
 
     if (Code2==0x3C0A)
     {
@@ -8875,7 +9253,6 @@ void File_Mxf::TimelineTrack()
 //***************************************************************************
 
 //---------------------------------------------------------------------------
-// 0x3D08
 void File_Mxf::AES3PCMDescriptor_AuxBitsMode()
 {
     //Parsing
@@ -8883,7 +9260,6 @@ void File_Mxf::AES3PCMDescriptor_AuxBitsMode()
 }
 
 //---------------------------------------------------------------------------
-// 0x3D0D
 void File_Mxf::AES3PCMDescriptor_Emphasis()
 {
     //Parsing
@@ -8891,7 +9267,6 @@ void File_Mxf::AES3PCMDescriptor_Emphasis()
 }
 
 //---------------------------------------------------------------------------
-// 0x3D0F
 void File_Mxf::AES3PCMDescriptor_BlockStartOffset()
 {
     //Parsing
@@ -8899,7 +9274,6 @@ void File_Mxf::AES3PCMDescriptor_BlockStartOffset()
 }
 
 //---------------------------------------------------------------------------
-// 0x3D10
 void File_Mxf::AES3PCMDescriptor_ChannelStatusMode()
 {
     //Parsing
@@ -8907,7 +9281,6 @@ void File_Mxf::AES3PCMDescriptor_ChannelStatusMode()
 }
 
 //---------------------------------------------------------------------------
-// 0x3D11
 void File_Mxf::AES3PCMDescriptor_FixedChannelStatusData()
 {
     //Parsing
@@ -8915,7 +9288,6 @@ void File_Mxf::AES3PCMDescriptor_FixedChannelStatusData()
 }
 
 //---------------------------------------------------------------------------
-// 0x3D12
 void File_Mxf::AES3PCMDescriptor_UserDataMode()
 {
     //Parsing
@@ -8923,7 +9295,6 @@ void File_Mxf::AES3PCMDescriptor_UserDataMode()
 }
 
 //---------------------------------------------------------------------------
-// 0x3D13
 void File_Mxf::AES3PCMDescriptor_FixedUserData()
 {
     //Parsing
@@ -8931,8 +9302,7 @@ void File_Mxf::AES3PCMDescriptor_FixedUserData()
 }
 
 //---------------------------------------------------------------------------
-// 0x3301
-void File_Mxf::CDCIEssenceDescriptor_ComponentDepth()
+void File_Mxf::CDCIDescriptor_ComponentDepth()
 {
     //Parsing
     int32u Data;
@@ -8945,8 +9315,7 @@ void File_Mxf::CDCIEssenceDescriptor_ComponentDepth()
 }
 
 //---------------------------------------------------------------------------
-// 0x3302
-void File_Mxf::CDCIEssenceDescriptor_HorizontalSubsampling()
+void File_Mxf::CDCIDescriptor_HorizontalSubsampling()
 {
     //Parsing
     int32u Data;
@@ -8959,16 +9328,14 @@ void File_Mxf::CDCIEssenceDescriptor_HorizontalSubsampling()
 }
 
 //---------------------------------------------------------------------------
-// 0x3303
-void File_Mxf::CDCIEssenceDescriptor_ColorSiting()
+void File_Mxf::CDCIDescriptor_ColorSiting()
 {
     //Parsing
     Info_B1(Data,                                               "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3304
-void File_Mxf::CDCIEssenceDescriptor_BlackRefLevel()
+void File_Mxf::CDCIDescriptor_BlackRefLevel()
 {
     //Parsing
     int32u Data;
@@ -8982,8 +9349,7 @@ void File_Mxf::CDCIEssenceDescriptor_BlackRefLevel()
 }
 
 //---------------------------------------------------------------------------
-// 0x3305
-void File_Mxf::CDCIEssenceDescriptor_WhiteReflevel()
+void File_Mxf::CDCIDescriptor_WhiteReflevel()
 {
     //Parsing
     int32u Data;
@@ -8997,8 +9363,7 @@ void File_Mxf::CDCIEssenceDescriptor_WhiteReflevel()
 }
 
 //---------------------------------------------------------------------------
-// 0x3306
-void File_Mxf::CDCIEssenceDescriptor_ColorRange()
+void File_Mxf::CDCIDescriptor_ColorRange()
 {
     //Parsing
     int32u Data;
@@ -9012,16 +9377,14 @@ void File_Mxf::CDCIEssenceDescriptor_ColorRange()
 }
 
 //---------------------------------------------------------------------------
-// 0x3307
-void File_Mxf::CDCIEssenceDescriptor_PaddingBits()
+void File_Mxf::CDCIDescriptor_PaddingBits()
 {
     //Parsing
     Info_B2(Data,                                               "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3308
-void File_Mxf::CDCIEssenceDescriptor_VerticalSubsampling()
+void File_Mxf::CDCIDescriptor_VerticalSubsampling()
 {
     //Parsing
     int32u Data;
@@ -9034,31 +9397,27 @@ void File_Mxf::CDCIEssenceDescriptor_VerticalSubsampling()
 }
 
 //---------------------------------------------------------------------------
-// 0x3309
-void File_Mxf::CDCIEssenceDescriptor_AlphaSampleDepth()
+void File_Mxf::CDCIDescriptor_AlphaSampleDepth()
 {
     //Parsing
     Info_B4(Data,                                               "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x330B
-void File_Mxf::CDCIEssenceDescriptor_ReversedByteOrder()
+void File_Mxf::CDCIDescriptor_ReversedByteOrder()
 {
     //Parsing
     Info_B1(Data,                                               "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x1901
 void File_Mxf::ContentStorage_Packages()
 {
     ContentStorages[InstanceUID].Packages.clear();
 
     //Parsing
-    if (Vector(16)==(int32u)-1)
-        return;
-    while (Element_Offset<Element_Size)
+    VECTOR(16);
+    for (int32u i=0; i<Count; i++)
     {
         int128u Data;
         Get_UUID(Data,                                          "Package");
@@ -9071,88 +9430,74 @@ void File_Mxf::ContentStorage_Packages()
 }
 
 //---------------------------------------------------------------------------
-// 0x1902
-void File_Mxf::ContentStorage_EssenceContainerData()
+void File_Mxf::ContentStorage_EssenceData()
 {
     //Parsing
-    if (Vector(16)==(int32u)-1)
-        return;
-    while (Element_Offset<Element_Size)
+    VECTOR(16);
+    for (int32u i=0; i<Count; i++)
     {
         Skip_UUID(                                              "EssenceContainer");
     }
 }
 
 //---------------------------------------------------------------------------
-// 0x0202
-void File_Mxf::DMSegment_Duration()
+void File_Mxf::DescriptiveMarker_Duration()
 {
     //Parsing
     int64u Data;
     Get_B8 (Data,                                               "Data"); Element_Info1(Data); //units of edit rate
 
-    FILLING_BEGIN();
-        DMSegments[InstanceUID].Duration=Data;
-    FILLING_END();
+    DescriptiveMarkers[InstanceUID].Duration=Data;
 }
 
 //---------------------------------------------------------------------------
-// 0x6101
-void File_Mxf::DMSegment_DMFramework()
+void File_Mxf::DescriptiveMarker_DMFramework()
 {
     //Parsing
     int128u Data;
     Get_UUID(Data,                                             "DM Framework"); Element_Info1(Ztring().From_UUID(Data));
 
-    FILLING_BEGIN();
-        DMSegments[InstanceUID].Framework=Data;
-    FILLING_END();
+    DescriptiveMarkers[InstanceUID].Framework=Data;
 }
 
 //---------------------------------------------------------------------------
-// 0x6101
-void File_Mxf::DMSegment_TrackIDs()
+void File_Mxf::DescriptiveMarker_TrackIDs()
 {
     //Parsing
-    if (Vector(4)==(int32u)-1)
-        return;
-    while (Element_Offset<Element_Size)
+    VECTOR(4);
+    for (int32u i=0; i<Count; i++)
     {
         int32u Data;
         Get_B4 (Data,                                           "Track ID");
 
         FILLING_BEGIN();
-            DMSegments[InstanceUID].TrackIDs.push_back(Data);
+            DescriptiveMarkers[InstanceUID].TrackIDs.push_back(Data);
         FILLING_END();
     }
 }
 
 //---------------------------------------------------------------------------
-// 0x2701
-void File_Mxf::EssenceContainerData_LinkedPackageUID()
+void File_Mxf::EssenceData_LinkedPackageUID()
 {
     //Parsing
     Skip_UMID();
 }
 
 //---------------------------------------------------------------------------
-// 0x3F06
-void File_Mxf::EssenceContainerData_IndexSID()
+void File_Mxf::EssenceData_IndexSID()
 {
     //Parsing
     Info_B4(Data,                                               "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3F07
-void File_Mxf::EssenceContainerData_BodySID()
+void File_Mxf::EssenceData_BodySID()
 {
     //Parsing
     Info_B4(Data,                                               "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x4901
 void File_Mxf::EventTrack_EventEditRate()
 {
     //Parsing
@@ -9160,7 +9505,6 @@ void File_Mxf::EventTrack_EventEditRate()
 }
 
 //---------------------------------------------------------------------------
-// 0x4902
 void File_Mxf::EventTrack_EventOrigin()
 {
     //Parsing
@@ -9168,10 +9512,8 @@ void File_Mxf::EventTrack_EventOrigin()
 }
 
 //---------------------------------------------------------------------------
-// 0x3001
 void File_Mxf::FileDescriptor_SampleRate()
 {
-    //Parsing
     Get_Rational(Descriptors[InstanceUID].SampleRate); Element_Info1(Descriptors[InstanceUID].SampleRate);
 
     FILLING_BEGIN();
@@ -9181,10 +9523,8 @@ void File_Mxf::FileDescriptor_SampleRate()
 }
 
 //---------------------------------------------------------------------------
-// 0x3002
 void File_Mxf::FileDescriptor_ContainerDuration()
 {
-    //Parsing
     int64u Data;
     Get_B8 (Data,                                               "Data"); Element_Info1(Data);
 
@@ -9199,7 +9539,6 @@ void File_Mxf::FileDescriptor_ContainerDuration()
 }
 
 //---------------------------------------------------------------------------
-// 0x3004
 void File_Mxf::FileDescriptor_EssenceContainer()
 {
     //Parsing
@@ -9212,15 +9551,17 @@ void File_Mxf::FileDescriptor_EssenceContainer()
         int8u Code8=(int8u)((EssenceContainer.lo&0x00000000000000FFLL)    );
 
         Descriptors[InstanceUID].EssenceContainer=EssenceContainer;
-        Descriptor_Fill("Format_Settings_Wrapping", Mxf_EssenceContainer_Mapping(Code6, Code7, Code8));
+        Descriptor_Fill("Format_Settings_Wrapping", Mxf_EssenceContainer_Mapping(EssenceContainer.lo));
 
         if (!DataMustAlwaysBeComplete && Descriptors[InstanceUID].Infos["Format_Settings_Wrapping"].find(__T("Frame"))!=string::npos)
             DataMustAlwaysBeComplete=true;
+
+        if (Code6==0x0C)
+            Descriptors[InstanceUID].Jp2kContentKind=Code7;
     FILLING_END();
 }
 
 //---------------------------------------------------------------------------
-// 0x3005
 void File_Mxf::FileDescriptor_Codec()
 {
     //Parsing
@@ -9228,10 +9569,8 @@ void File_Mxf::FileDescriptor_Codec()
 }
 
 //---------------------------------------------------------------------------
-// 0x3006
 void File_Mxf::FileDescriptor_LinkedTrackID()
 {
-    //Parsing
     int32u Data;
     Get_B4 (Data,                                               "Data"); Element_Info1(Data);
 
@@ -9242,7 +9581,6 @@ void File_Mxf::FileDescriptor_LinkedTrackID()
 }
 
 //---------------------------------------------------------------------------
-// 0x3C0A
 void File_Mxf::InterchangeObject_InstanceUID()
 {
     //Parsing
@@ -9294,6 +9632,7 @@ void File_Mxf::InterchangeObject_InstanceUID()
             std::map<std::string, Ztring> Infos_Temp=Descriptors[InstanceUID].Infos; //Quick method for copying the whole descriptor without erasing the modifications made by Descriptor_Fill(). TODO: a better method in order to be more generic
             Descriptors[InstanceUID]=Descriptor->second;
             Descriptors[InstanceUID].Infos=Infos_Temp;
+            Descriptor->second.Parser=nullptr; //TODO: safer move from one key to another
             Descriptors.erase(Descriptor);
         }
         locators::iterator Locator=Locators.find(0);
@@ -9308,11 +9647,11 @@ void File_Mxf::InterchangeObject_InstanceUID()
             Components[InstanceUID].Update(Component->second);
             Components.erase(Component);
         }
-        dmsegments::iterator DMSegment=DMSegments.find(0);
-        if (DMSegment!=DMSegments.end())
+        dmsegments::iterator DescriptiveMarker=DescriptiveMarkers.find(0);
+        if (DescriptiveMarker!=DescriptiveMarkers.end())
         {
-            DMSegments[InstanceUID]=DMSegment->second;
-            DMSegments.erase(DMSegment);
+            DescriptiveMarkers[InstanceUID]=DescriptiveMarker->second;
+            DescriptiveMarkers.erase(DescriptiveMarker);
         }
         as11s::iterator AS11=AS11s.find(0);
         if (AS11!=AS11s.end())
@@ -9324,7 +9663,6 @@ void File_Mxf::InterchangeObject_InstanceUID()
 }
 
 //---------------------------------------------------------------------------
-// 0x0102
 void File_Mxf::GenerationInterchangeObject_GenerationUID()
 {
     //Parsing
@@ -9332,15 +9670,13 @@ void File_Mxf::GenerationInterchangeObject_GenerationUID()
 }
 
 //---------------------------------------------------------------------------
-// 0x2F01
 void File_Mxf::GenericDescriptor_Locators()
 {
     Descriptors[InstanceUID].Locators.clear();
 
     //Parsing
-    if (Vector(16)==(int32u)-1)
-        return;
-    while (Element_Offset<Element_Size)
+    VECTOR(16);
+    for (int32u i=0; i<Count; i++)
     {
         Element_Begin1("Locator");
         int128u UUID;
@@ -9355,7 +9691,6 @@ void File_Mxf::GenericDescriptor_Locators()
 }
 
 //---------------------------------------------------------------------------
-// 0x4401
 void File_Mxf::GenericPackage_PackageUID()
 {
     //Parsing
@@ -9368,7 +9703,6 @@ void File_Mxf::GenericPackage_PackageUID()
 }
 
 //---------------------------------------------------------------------------
-// 0x4402
 void File_Mxf::GenericPackage_Name()
 {
     //Parsing
@@ -9382,13 +9716,11 @@ void File_Mxf::GenericPackage_Name()
 }
 
 //---------------------------------------------------------------------------
-// 0x4403
 void File_Mxf::GenericPackage_Tracks()
 {
     //Parsing
-    if (Vector(16)==(int32u)-1)
-        return;
-    while (Element_Offset<Element_Size)
+    VECTOR(16);
+    for (int32u i=0; i<Count; i++)
     {
         int128u Data;
         Get_UUID(Data,                                          "Track");
@@ -9400,7 +9732,6 @@ void File_Mxf::GenericPackage_Tracks()
 }
 
 //---------------------------------------------------------------------------
-// 0x4404
 void File_Mxf::GenericPackage_PackageModifiedDate()
 {
     //Parsing
@@ -9408,7 +9739,6 @@ void File_Mxf::GenericPackage_PackageModifiedDate()
 }
 
 //---------------------------------------------------------------------------
-// 0x4405
 void File_Mxf::GenericPackage_PackageCreationDate()
 {
     //Parsing
@@ -9416,8 +9746,7 @@ void File_Mxf::GenericPackage_PackageCreationDate()
 }
 
 //---------------------------------------------------------------------------
-// 0x3201
-void File_Mxf::GenericPictureEssenceDescriptor_PictureEssenceCoding()
+void File_Mxf::PictureDescriptor_PictureEssenceCoding()
 {
     //Parsing
     int128u Data;
@@ -9433,8 +9762,7 @@ void File_Mxf::GenericPictureEssenceDescriptor_PictureEssenceCoding()
 }
 
 //---------------------------------------------------------------------------
-// 0x3202
-void File_Mxf::GenericPictureEssenceDescriptor_StoredHeight()
+void File_Mxf::PictureDescriptor_StoredHeight()
 {
     //Parsing
     int32u Data;
@@ -9452,8 +9780,7 @@ void File_Mxf::GenericPictureEssenceDescriptor_StoredHeight()
 }
 
 //---------------------------------------------------------------------------
-// 0x3203
-void File_Mxf::GenericPictureEssenceDescriptor_StoredWidth()
+void File_Mxf::PictureDescriptor_StoredWidth()
 {
     //Parsing
     int32u Data;
@@ -9468,8 +9795,7 @@ void File_Mxf::GenericPictureEssenceDescriptor_StoredWidth()
 }
 
 //---------------------------------------------------------------------------
-// 0x3204
-void File_Mxf::GenericPictureEssenceDescriptor_SampledHeight()
+void File_Mxf::PictureDescriptor_SampledHeight()
 {
     //Parsing
     int32u Data;
@@ -9483,8 +9809,7 @@ void File_Mxf::GenericPictureEssenceDescriptor_SampledHeight()
 }
 
 //---------------------------------------------------------------------------
-// 0x3205
-void File_Mxf::GenericPictureEssenceDescriptor_SampledWidth()
+void File_Mxf::PictureDescriptor_SampledWidth()
 {
     //Parsing
     int32u Data;
@@ -9496,24 +9821,21 @@ void File_Mxf::GenericPictureEssenceDescriptor_SampledWidth()
 }
 
 //---------------------------------------------------------------------------
-// 0x3206
-void File_Mxf::GenericPictureEssenceDescriptor_SampledXOffset()
+void File_Mxf::PictureDescriptor_SampledXOffset()
 {
     //Parsing
     Info_B4(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3207
-void File_Mxf::GenericPictureEssenceDescriptor_SampledYOffset()
+void File_Mxf::PictureDescriptor_SampledYOffset()
 {
     //Parsing
     Info_B4(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3208
-void File_Mxf::GenericPictureEssenceDescriptor_DisplayHeight()
+void File_Mxf::PictureDescriptor_DisplayHeight()
 {
     //Parsing
     int32u Data;
@@ -9527,8 +9849,7 @@ void File_Mxf::GenericPictureEssenceDescriptor_DisplayHeight()
 }
 
 //---------------------------------------------------------------------------
-// 0x3209
-void File_Mxf::GenericPictureEssenceDescriptor_DisplayWidth()
+void File_Mxf::PictureDescriptor_DisplayWidth()
 {
     //Parsing
     int32u Data;
@@ -9540,8 +9861,7 @@ void File_Mxf::GenericPictureEssenceDescriptor_DisplayWidth()
 }
 
 //---------------------------------------------------------------------------
-// 0x320A
-void File_Mxf::GenericPictureEssenceDescriptor_DisplayXOffset()
+void File_Mxf::PictureDescriptor_DisplayXOffset()
 {
     //Parsing
     int32u Data;
@@ -9553,8 +9873,7 @@ void File_Mxf::GenericPictureEssenceDescriptor_DisplayXOffset()
 }
 
 //---------------------------------------------------------------------------
-// 0x320B
-void File_Mxf::GenericPictureEssenceDescriptor_DisplayYOffset()
+void File_Mxf::PictureDescriptor_DisplayYOffset()
 {
     //Parsing
     int32u Data;
@@ -9568,8 +9887,7 @@ void File_Mxf::GenericPictureEssenceDescriptor_DisplayYOffset()
 }
 
 //---------------------------------------------------------------------------
-// 0x320C
-void File_Mxf::GenericPictureEssenceDescriptor_FrameLayout()
+void File_Mxf::PictureDescriptor_FrameLayout()
 {
     //Parsing
     int8u Data;
@@ -9582,21 +9900,20 @@ void File_Mxf::GenericPictureEssenceDescriptor_FrameLayout()
             if (Descriptors[InstanceUID].Height_Display!=(int32u)-1) Descriptors[InstanceUID].Height_Display*=Mxf_FrameLayout_Multiplier(Data);
             if (Descriptors[InstanceUID].Height_Display_Offset!=(int32u)-1) Descriptors[InstanceUID].Height_Display_Offset*=Mxf_FrameLayout_Multiplier(Data);
         }
-        Descriptors[InstanceUID].ScanType.From_UTF8(Mxf_FrameLayout_ScanType(Data));
+        if (Descriptors[InstanceUID].ScanType.empty() || !Partitions_IsFooter)
+            Descriptors[InstanceUID].ScanType.From_UTF8(Mxf_FrameLayout_ScanType(Data));
     FILLING_END();
 }
 
 //---------------------------------------------------------------------------
-// 0x320D
-void File_Mxf::GenericPictureEssenceDescriptor_VideoLineMap()
+void File_Mxf::PictureDescriptor_VideoLineMap()
 {
     int64u VideoLineMapEntries_Total=0;
     bool   VideoLineMapEntry_IsZero=false;
 
     //Parsing
-    if (Vector(4)==(int32u)-1)
-        return;
-    while (Element_Offset<Element_Size)
+    VECTOR(4);
+    for (int32u i=0; i<Count; i++)
     {
         int32u VideoLineMapEntry;
         Get_B4 (VideoLineMapEntry,                              "VideoLineMapEntry");
@@ -9613,14 +9930,13 @@ void File_Mxf::GenericPictureEssenceDescriptor_VideoLineMap()
         //    odd even field 1 upper
         //    even odd field 1 upper
         //    even even field 2 upper
-        if (Length2==8+2*4 && !VideoLineMapEntry_IsZero) //2 values
+        if (Count==2 && !VideoLineMapEntry_IsZero) //2 values
             Descriptors[InstanceUID].FieldTopness=(VideoLineMapEntries_Total%2)?1:2;
     FILLING_END();
 }
 
 //---------------------------------------------------------------------------
-// 0x320E
-void File_Mxf::GenericPictureEssenceDescriptor_AspectRatio()
+void File_Mxf::PictureDescriptor_AspectRatio()
 {
     //Parsing
     float64 Data;
@@ -9636,37 +9952,33 @@ void File_Mxf::GenericPictureEssenceDescriptor_AspectRatio()
 }
 
 //---------------------------------------------------------------------------
-// 0x320F
-void File_Mxf::GenericPictureEssenceDescriptor_AlphaTransparency()
+void File_Mxf::PictureDescriptor_AlphaTransparency()
 {
     //Parsing
     Info_B1(Data,                                               "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3210
-void File_Mxf::GenericPictureEssenceDescriptor_TransferCharacteristic()
+void File_Mxf::PictureDescriptor_TransferCharacteristic()
 {
     //Parsing
     int128u Data;
-    Get_UL(Data,                                                "Data", Mxf_TransferCharacteristic);  Element_Info1(Mxf_TransferCharacteristic(Data));
+    Get_UL(Data,                                                "Data", NULL); Element_Info1(Mxf_TransferCharacteristic(Data));
 
     FILLING_BEGIN();
-        Descriptor_Fill("transfer_characteristics", Mxf_TransferCharacteristic(Data));
+        Descriptor_Fill("transfer_characteristics", Ztring().From_UTF8(Mxf_TransferCharacteristic(Data)));
     FILLING_END();
 }
 
 //---------------------------------------------------------------------------
-// 0x3211
-void File_Mxf::GenericPictureEssenceDescriptor_ImageAlignmentOffset()
+void File_Mxf::PictureDescriptor_ImageAlignmentOffset()
 {
     //Parsing
     Info_B4(Data,                                               "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3212
-void File_Mxf::GenericPictureEssenceDescriptor_FieldDominance()
+void File_Mxf::PictureDescriptor_FieldDominance()
 {
     //Parsing
     int8u Data;
@@ -9679,48 +9991,42 @@ void File_Mxf::GenericPictureEssenceDescriptor_FieldDominance()
 }
 
 //---------------------------------------------------------------------------
-// 0x3213
-void File_Mxf::GenericPictureEssenceDescriptor_ImageStartOffset()
+void File_Mxf::PictureDescriptor_ImageStartOffset()
 {
     //Parsing
     Info_B4(Data,                                               "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3214
-void File_Mxf::GenericPictureEssenceDescriptor_ImageEndOffset()
+void File_Mxf::PictureDescriptor_ImageEndOffset()
 {
     //Parsing
     Info_B4(Data,                                               "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3215
-void File_Mxf::GenericPictureEssenceDescriptor_SignalStandard()
+void File_Mxf::PictureDescriptor_SignalStandard()
 {
     //Parsing
     Info_B1(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3216
-void File_Mxf::GenericPictureEssenceDescriptor_StoredF2Offset()
+void File_Mxf::PictureDescriptor_StoredF2Offset()
 {
     //Parsing
     Info_B4(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3217
-void File_Mxf::GenericPictureEssenceDescriptor_DisplayF2Offset()
+void File_Mxf::PictureDescriptor_DisplayF2Offset()
 {
     //Parsing
     Info_B4(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3218
-void File_Mxf::GenericPictureEssenceDescriptor_ActiveFormatDescriptor()
+void File_Mxf::PictureDescriptor_ActiveFormatDescriptor()
 {
     //Parsing
     int8u Data;
@@ -9750,8 +10056,7 @@ void File_Mxf::GenericPictureEssenceDescriptor_ActiveFormatDescriptor()
 }
 
 //---------------------------------------------------------------------------
-// 0x3219
-void File_Mxf::GenericPictureEssenceDescriptor_ColorPrimaries()
+void File_Mxf::PictureDescriptor_ColorPrimaries()
 {
     //Parsing
     int128u Data;
@@ -9763,8 +10068,7 @@ void File_Mxf::GenericPictureEssenceDescriptor_ColorPrimaries()
 }
 
 //---------------------------------------------------------------------------
-// 0x321A
-void File_Mxf::GenericPictureEssenceDescriptor_CodingEquations()
+void File_Mxf::PictureDescriptor_CodingEquations()
 {
     //Parsing
     int128u Data;
@@ -9776,7 +10080,6 @@ void File_Mxf::GenericPictureEssenceDescriptor_CodingEquations()
 }
 
 //---------------------------------------------------------------------------
-//
 void File_Mxf::MasteringDisplayPrimaries()
 {
     //Parsing
@@ -9789,39 +10092,17 @@ void File_Mxf::MasteringDisplayPrimaries()
     }
 
     FILLING_BEGIN();
-        //Reordering to RGB
-        size_t G=4, B=4, R=4;
-        for (size_t c=0; c<3; c++)
+        ZtringList MasteringDisplay_ColorPrimaries;
+        for (size_t c = 0; c < 3; c++)
         {
-            if (x[c]<17500 && y[c]<17500)
-                B=c;
-            else if (y[c]-x[c]>=0)
-                G=c;
-            else
-                R=c;
+            MasteringDisplay_ColorPrimaries.push_back(Ztring::ToZtring(x[c]));
+            MasteringDisplay_ColorPrimaries.push_back(Ztring::ToZtring(y[c]));
         }
-        if ((R|B|G)>=4)
-        {
-            //Order not automatically detected, betting on GBR order
-            G=0;
-            B=1;
-            R=2;
-        }
-
-        Ztring
-        MasteringDisplay_ColorPrimaries=__T("R: x=")+Ztring::ToZtring(((float64)x[R])/50000, 6)
-                                       +__T(  " y=")+Ztring::ToZtring(((float64)y[R])/50000, 6)
-                                     +__T(", G: x=")+Ztring::ToZtring(((float64)x[G])/50000, 6)
-                                       +__T(  " y=")+Ztring::ToZtring(((float64)y[G])/50000, 6)
-                                     +__T(", B: x=")+Ztring::ToZtring(((float64)x[B])/50000, 6)
-                                       +__T(  " y=")+Ztring::ToZtring(((float64)y[B])/50000, 6)
-            ;
-        Descriptor_Fill("MasteringDisplay_Primaries", MasteringDisplay_ColorPrimaries);
+        Descriptor_Fill("MasteringDisplay_Primaries", MasteringDisplay_ColorPrimaries.Read());
     FILLING_END();
 }
 
 //---------------------------------------------------------------------------
-//
 void File_Mxf::MasteringDisplayWhitePointChromaticity()
 {
     int16u x;
@@ -9830,17 +10111,14 @@ void File_Mxf::MasteringDisplayWhitePointChromaticity()
     Get_B2(y,                                                   "white_point_y");
 
     FILLING_BEGIN();
-        Ztring
-        MasteringDisplay_ColorPrimaries=
-                                           __T("x=")+Ztring::ToZtring(((float64)x)/50000, 6)
-                                       +__T(  " y=")+Ztring::ToZtring(((float64)y)/50000, 6);
-            ;
-        Descriptor_Fill("MasteringDisplay_WhitePointChromaticity", MasteringDisplay_ColorPrimaries);
+        ZtringList MasteringDisplay_WhitePointChromaticity;
+        MasteringDisplay_WhitePointChromaticity.push_back(Ztring::ToZtring(x));
+        MasteringDisplay_WhitePointChromaticity.push_back(Ztring::ToZtring(y));
+        Descriptor_Fill("MasteringDisplay_WhitePointChromaticity", MasteringDisplay_WhitePointChromaticity.Read());
     FILLING_END();
 }
 
 //---------------------------------------------------------------------------
-//
 void File_Mxf::MasteringDisplayMaximumLuminance()
 {
     //Parsing
@@ -9848,12 +10126,11 @@ void File_Mxf::MasteringDisplayMaximumLuminance()
     Get_B4 (max,                                                "Data");
 
     FILLING_BEGIN();
-        Descriptor_Fill("MasteringDisplay_Luminance_Max", Ztring::ToZtring(((float64)max)/10000, (max-((int)max)==0)?0:4));
+        Descriptor_Fill("MasteringDisplay_Luminance_Max", Ztring::ToZtring(max));
     FILLING_END();
 }
 
 //---------------------------------------------------------------------------
-//
 void File_Mxf::MasteringDisplayMinimumLuminance()
 {
     //Parsing
@@ -9861,13 +10138,18 @@ void File_Mxf::MasteringDisplayMinimumLuminance()
     Get_B4 (min,                                               "Data");
 
     FILLING_BEGIN();
-        Descriptor_Fill("MasteringDisplay_Luminance_Min", Ztring::ToZtring(((float64)min)/10000, 4));
+        Descriptor_Fill("MasteringDisplay_Luminance_Min", Ztring::ToZtring(min));
     FILLING_END();
 }
 
 //---------------------------------------------------------------------------
-// 0x3D01
-void File_Mxf::GenericSoundEssenceDescriptor_QuantizationBits()
+void File_Mxf::TextBasedObject()
+{
+    Skip_UUID(                                                  "UUID");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::SoundDescriptor_QuantizationBits()
 {
     //Parsing
     int32u Data;
@@ -9883,8 +10165,7 @@ void File_Mxf::GenericSoundEssenceDescriptor_QuantizationBits()
 }
 
 //---------------------------------------------------------------------------
-// 0x3D02
-void File_Mxf::GenericSoundEssenceDescriptor_Locked()
+void File_Mxf::SoundDescriptor_Locked()
 {
     //Parsing
     int8u Data;
@@ -9896,8 +10177,7 @@ void File_Mxf::GenericSoundEssenceDescriptor_Locked()
 }
 
 //---------------------------------------------------------------------------
-// 0x3D03
-void File_Mxf::GenericSoundEssenceDescriptor_AudioSamplingRate()
+void File_Mxf::SoundDescriptor_AudioSamplingRate()
 {
     //Parsing
     float64 Data;
@@ -9909,24 +10189,21 @@ void File_Mxf::GenericSoundEssenceDescriptor_AudioSamplingRate()
 }
 
 //---------------------------------------------------------------------------
-// 0x3D04
-void File_Mxf::GenericSoundEssenceDescriptor_AudioRefLevel()
+void File_Mxf::SoundDescriptor_AudioRefLevel()
 {
     //Parsing
     Info_B1(Data,                                               "Data"); Element_Info2(Data, " dB");
 }
 
 //---------------------------------------------------------------------------
-// 0x3D05
-void File_Mxf::GenericSoundEssenceDescriptor_ElectroSpatialFormulation()
+void File_Mxf::SoundDescriptor_ElectroSpatialFormulation()
 {
     //Parsing
     Info_B1(Data,                                               "Data"); Element_Info1(Data); //Enum
 }
 
 //---------------------------------------------------------------------------
-// 0x3D06
-void File_Mxf::GenericSoundEssenceDescriptor_SoundEssenceCompression()
+void File_Mxf::SoundDescriptor_SoundEssenceCompression()
 {
     //Parsing
     int128u Data;
@@ -9943,37 +10220,36 @@ void File_Mxf::GenericSoundEssenceDescriptor_SoundEssenceCompression()
 }
 
 //---------------------------------------------------------------------------
-// 0x3D07
-void File_Mxf::GenericSoundEssenceDescriptor_ChannelCount()
+void File_Mxf::SoundDescriptor_ChannelCount()
 {
     //Parsing
     int32u Value;
     Get_B4 (Value,                                              "Value"); Element_Info1(Value);
 
     FILLING_BEGIN();
-        Descriptors[InstanceUID].ChannelCount=Value;
-        Descriptor_Fill("Channel(s)", Ztring().From_Number(Value));
+        if (Value)
+        {
+            Descriptors[InstanceUID].ChannelCount=Value;
+            Descriptor_Fill("Channel(s)", Ztring().From_Number(Value));
+        }
     FILLING_END();
 }
 
 //---------------------------------------------------------------------------
-// 0x3D0C
-void File_Mxf::GenericSoundEssenceDescriptor_DialNorm()
+void File_Mxf::SoundDescriptor_DialNorm()
 {
     //Parsing
     Info_B1(Data,                                               "Data"); Element_Info2(Data, " dB");
 }
 
 //---------------------------------------------------------------------------
-// 0x3E01
-void File_Mxf::GenericDataEssenceDescriptor_DataEssenceCoding()
+void File_Mxf::DataEssenceDescriptor_DataEssenceCoding()
 {
     //Parsing
     Skip_UL(                                                    "UUID");
 }
 
 //---------------------------------------------------------------------------
-// 0x4801
 void File_Mxf::GenericTrack_TrackID()
 {
     //Parsing
@@ -9987,7 +10263,6 @@ void File_Mxf::GenericTrack_TrackID()
 }
 
 //---------------------------------------------------------------------------
-// 0x4802
 void File_Mxf::GenericTrack_TrackName()
 {
     //Parsing
@@ -10000,7 +10275,6 @@ void File_Mxf::GenericTrack_TrackName()
 }
 
 //---------------------------------------------------------------------------
-// 0x4803
 void File_Mxf::GenericTrack_Sequence()
 {
     //Parsing
@@ -10013,7 +10287,6 @@ void File_Mxf::GenericTrack_Sequence()
 }
 
 //---------------------------------------------------------------------------
-// 0x4804
 void File_Mxf::GenericTrack_TrackNumber()
 {
     //Parsing
@@ -10028,7 +10301,6 @@ void File_Mxf::GenericTrack_TrackNumber()
 }
 
 //---------------------------------------------------------------------------
-// 0x3C01
 void File_Mxf::Identification_CompanyName()
 {
     //Parsing
@@ -10041,7 +10313,6 @@ void File_Mxf::Identification_CompanyName()
 }
 
 //---------------------------------------------------------------------------
-// 0x3C02
 void File_Mxf::Identification_ProductName()
 {
     //Parsing
@@ -10054,7 +10325,6 @@ void File_Mxf::Identification_ProductName()
 }
 
 //---------------------------------------------------------------------------
-// 0x3C03
 void File_Mxf::Identification_ProductVersion()
 {
     //Parsing
@@ -10078,7 +10348,6 @@ void File_Mxf::Identification_ProductVersion()
 }
 
 //---------------------------------------------------------------------------
-// 0x3C04
 void File_Mxf::Identification_VersionString()
 {
     //Parsing
@@ -10091,7 +10360,6 @@ void File_Mxf::Identification_VersionString()
 }
 
 //---------------------------------------------------------------------------
-// 0x3C05
 void File_Mxf::Identification_ProductUID()
 {
     //Parsing
@@ -10099,7 +10367,6 @@ void File_Mxf::Identification_ProductUID()
 }
 
 //---------------------------------------------------------------------------
-// 0x3C06
 void File_Mxf::Identification_ModificationDate()
 {
     //Parsing
@@ -10107,7 +10374,6 @@ void File_Mxf::Identification_ModificationDate()
 }
 
 //---------------------------------------------------------------------------
-// 0x3C07
 void File_Mxf::Identification_ToolkitVersion()
 {
     //Parsing
@@ -10138,7 +10404,6 @@ void File_Mxf::Identification_ToolkitVersion()
 }
 
 //---------------------------------------------------------------------------
-// 0x3C08
 void File_Mxf::Identification_Platform()
 {
     //Parsing
@@ -10152,7 +10417,6 @@ void File_Mxf::Identification_Platform()
 }
 
 //---------------------------------------------------------------------------
-// 0x3C09
 void File_Mxf::Identification_ThisGenerationUID()
 {
     //Parsing
@@ -10160,7 +10424,6 @@ void File_Mxf::Identification_ThisGenerationUID()
 }
 
 //---------------------------------------------------------------------------
-// 0x3F05
 void File_Mxf::IndexTableSegment_EditUnitByteCount()
 {
     //Parsing
@@ -10175,7 +10438,6 @@ void File_Mxf::IndexTableSegment_EditUnitByteCount()
 }
 
 //---------------------------------------------------------------------------
-// 0x3F06
 void File_Mxf::IndexTableSegment_IndexSID()
 {
     //Parsing
@@ -10183,7 +10445,6 @@ void File_Mxf::IndexTableSegment_IndexSID()
 }
 
 //---------------------------------------------------------------------------
-// 0x3F07
 void File_Mxf::IndexTableSegment_BodySID()
 {
     //Parsing
@@ -10191,7 +10452,6 @@ void File_Mxf::IndexTableSegment_BodySID()
 }
 
 //---------------------------------------------------------------------------
-// 0x3F08
 void File_Mxf::IndexTableSegment_SliceCount()
 {
     //Parsing
@@ -10204,7 +10464,6 @@ void File_Mxf::IndexTableSegment_SliceCount()
 }
 
 //---------------------------------------------------------------------------
-// 0x3F09
 void File_Mxf::IndexTableSegment_DeltaEntryArray()
 {
     //Parsing
@@ -10222,7 +10481,6 @@ void File_Mxf::IndexTableSegment_DeltaEntryArray()
 }
 
 //---------------------------------------------------------------------------
-// 0x3F0A
 void File_Mxf::IndexTableSegment_IndexEntryArray()
 {
     //Parsing
@@ -10267,7 +10525,6 @@ void File_Mxf::IndexTableSegment_IndexEntryArray()
 }
 
 //---------------------------------------------------------------------------
-// 0x3F0B
 void File_Mxf::IndexTableSegment_IndexEditRate()
 {
     //Parsing
@@ -10282,7 +10539,6 @@ void File_Mxf::IndexTableSegment_IndexEditRate()
 }
 
 //---------------------------------------------------------------------------
-// 0x3F0C
 void File_Mxf::IndexTableSegment_IndexStartPosition()
 {
     //Parsing
@@ -10314,7 +10570,6 @@ void File_Mxf::IndexTableSegment_IndexStartPosition()
 }
 
 //---------------------------------------------------------------------------
-// 0x3F0D
 void File_Mxf::IndexTableSegment_IndexDuration()
 {
     //Parsing
@@ -10329,7 +10584,6 @@ void File_Mxf::IndexTableSegment_IndexDuration()
 }
 
 //---------------------------------------------------------------------------
-// 0x3F0E
 void File_Mxf::IndexTableSegment_PosTableCount()
 {
     //Parsing
@@ -10342,7 +10596,6 @@ void File_Mxf::IndexTableSegment_PosTableCount()
 }
 
 //---------------------------------------------------------------------------
-// 0x8002
 void File_Mxf::IndexTableSegment_8002()
 {
     //Parsing
@@ -10350,8 +10603,7 @@ void File_Mxf::IndexTableSegment_8002()
 }
 
 //---------------------------------------------------------------------------
-// 0x8001
-void File_Mxf::JPEG2000PictureSubDescriptor_Rsiz()
+void File_Mxf::Rsiz()
 {
     #if MEDIAINFO_ADVANCED
         //Parsing
@@ -10367,72 +10619,63 @@ void File_Mxf::JPEG2000PictureSubDescriptor_Rsiz()
 }
 
 //---------------------------------------------------------------------------
-// 0x8002
-void File_Mxf::JPEG2000PictureSubDescriptor_Xsiz()
+void File_Mxf::Xsiz()
 {
     //Parsing
     Info_B4(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x8003
-void File_Mxf::JPEG2000PictureSubDescriptor_Ysiz()
+void File_Mxf::Ysiz()
 {
     //Parsing
     Info_B4(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x8004
-void File_Mxf::JPEG2000PictureSubDescriptor_XOsiz()
+void File_Mxf::XOsiz()
 {
     //Parsing
     Info_B4(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x8005
-void File_Mxf::JPEG2000PictureSubDescriptor_YOsiz()
+void File_Mxf::YOsiz()
 {
     //Parsing
     Info_B4(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x8006
-void File_Mxf::JPEG2000PictureSubDescriptor_XTsiz()
+void File_Mxf::XTsiz()
 {
     //Parsing
     Info_B4(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x8007
-void File_Mxf::JPEG2000PictureSubDescriptor_YTsiz()
+void File_Mxf::YTsiz()
 {
     //Parsing
     Info_B4(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x8008
-void File_Mxf::JPEG2000PictureSubDescriptor_XTOsiz()
+void File_Mxf::XTOsiz()
 {
     //Parsing
     Info_B4(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x8009
-void File_Mxf::JPEG2000PictureSubDescriptor_YTOsiz()
+void File_Mxf::YTOsiz()
 {
     //Parsing
     Info_B4(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x800A
-void File_Mxf::JPEG2000PictureSubDescriptor_Csiz()
+void File_Mxf::Csiz()
 {
     //Parsing
     int16u Data;
@@ -10445,13 +10688,11 @@ void File_Mxf::JPEG2000PictureSubDescriptor_Csiz()
 }
 
 //---------------------------------------------------------------------------
-// 0x800B
-void File_Mxf::JPEG2000PictureSubDescriptor_PictureComponentSizing()
+void File_Mxf::PictureComponentSizing()
 {
     //Parsing
-    if (Vector(3)==(int32u)-1)
-        return;
-    while (Element_Offset<Element_Size)
+    VECTOR(3);
+    for (int32u i=0; i<Count; i++)
     {
         Element_Begin1("PictureComponentSize");
         Info_B1(Ssiz,                                           "Component sample precision"); Element_Info1(Ssiz);
@@ -10462,28 +10703,210 @@ void File_Mxf::JPEG2000PictureSubDescriptor_PictureComponentSizing()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::JPEG2000PictureSubDescriptor_CodingStyleDefault()
+void File_Mxf::CodingStyleDefault()
 {
     Skip_XX(Length2,                                            "Data");
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::JPEG2000PictureSubDescriptor_QuantizationDefault()
+void File_Mxf::QuantizationDefault()
 {
     Skip_XX(Length2,                                            "Data");
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::MpegAudioDescriptor_BitRate()
+void File_Mxf::FFV1InitializationMetadata()
+{
+    #if defined(MEDIAINFO_FFV1_YES)
+        File_Ffv1* Parser=new File_Ffv1;
+        Open_Buffer_Init(Parser);
+        Open_Buffer_OutOfBand(Parser);
+        
+        descriptor& Descriptor=Descriptors[InstanceUID];
+        delete Descriptor.Parser;
+        Descriptor.Parser=Parser;
+    #else
+        Skip_XX(Element_Size,                                   "Data");
+    #endif
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::FFV1IdenticalGOP()
+{
+    Skip_B1(                                                    "Data");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::FFV1MaxGOP()
+{
+    Skip_B2(                                                    "Data");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::FFV1MaximumBitRate()
 {
     Skip_B4(                                                    "Data");
 }
 
 //---------------------------------------------------------------------------
-// 0x3B02
+void File_Mxf::FFV1Version()
+{
+    Skip_B2(                                                    "Data");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::FFV1MicroVersion()
+{
+    Skip_B2(                                                    "Data");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::RIFFChunkStreamID()
+{
+    //Parsing
+    int32u Data;
+    Get_B4 (Data,                                               "Data"); Element_Info1(Data);
+
+    FILLING_BEGIN();
+         ExtraMetadata_SID.insert(Data);
+    FILLING_END();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::RIFFChunkID()
+{
+    Skip_C4(                                                    "Data");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::RIFFChunkUUID()
+{
+    Skip_UUID(                                                  "UUID");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::RIFFChunkHashSHA1()
+{
+    Skip_B4(                                                    "Data");
+    Skip_B4(                                                    "Data");
+    Skip_B4(                                                    "Data");
+    Skip_B4(                                                    "Data");
+    Skip_B4(                                                    "Data");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::RIFFChunkStreamIDsArray()
+{
+    VECTOR(4);
+    for (int32u i=0; i<Count; i++)
+        Skip_B4(                                                "Data");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::NumLocalChannels()
+{
+    Skip_B2(                                                    "Data");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::NumADMAudioTrackUIDs()
+{
+    Skip_B2(                                                    "Data");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ADMChannelMappingsArray()
+{
+    VECTOR(16);
+    for (int32u i=0; i<Count; i++)
+        Skip_UUID(                                              "UUID");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::LocalChannelID()
+{
+    int32u Data;
+    Get_B4(Data,                                                "Data");
+
+    FILLING_BEGIN();
+        #if defined(MEDIAINFO_ADM_YES)
+            ADMChannelMapping_LocalChannelID=Data;
+            ADMChannelMapping_Presence.set(0);
+        #endif //defined(MEDIAINFO_ADM_YES)
+    FILLING_END();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ADMAudioTrackUID()
+{
+    Ztring Data;
+    Get_UTF16B (Length2, Data,                                  "Data");
+
+    FILLING_BEGIN();
+        #if defined(MEDIAINFO_ADM_YES)
+            ADMChannelMapping_ADMAudioTrackUID= Data.To_UTF8();
+            ADMChannelMapping_Presence.set(1);
+        #endif //defined(MEDIAINFO_ADM_YES)
+    FILLING_END();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ADMAudioTrackChannelFormatID()
+{
+    Skip_UTF16B(Length2,                                        "Data");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ADMAudioPackFormatID()
+{
+    Skip_UTF16B(Length2,                                        "Data");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::RIFFChunkStreamID_link1()
+{
+    Skip_B4(                                                    "Data");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ADMProfileLevelULBatch()
+{
+    VECTOR(16);
+    for (int32u i=0; i<Count; i++)
+        Skip_UUID(                                              "UUID");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::RIFFChunkStreamID_link2()
+{
+    Skip_B4(                                                    "Data");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ADMAudioProgrammeID_ST2131()
+{
+    Skip_UTF16B(Length2,                                        "Data");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ADMAudioContentID_ST2131()
+{
+    Skip_UTF16B(Length2,                                        "Data");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ADMAudioObjectID_ST2131()
+{
+    Skip_UTF16B(Length2,                                        "Data");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::MPEGAudioBitRate()
+{
+    Skip_B4(                                                    "Data");
+}
+
+//---------------------------------------------------------------------------
 void File_Mxf::Preface_LastModifiedDate()
 {
     //Parsing
@@ -10496,45 +10919,40 @@ void File_Mxf::Preface_LastModifiedDate()
 }
 
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::PrimaryExtendedSpokenLanguage()
+void File_Mxf::PrimaryExtendedSpokenLanguageCode()
 {
     //Parsing
     Ztring Data;
     Get_UTF8 (Length2, Data,                                    "Data"); Element_Info1(Data);
 
     FILLING_BEGIN();
-        DMScheme1s[InstanceUID].PrimaryExtendedSpokenLanguage=Data;
+        ProductionFrameworks[InstanceUID].PrimaryExtendedSpokenLanguage=Data;
     FILLING_END();
 }
 
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::SecondaryExtendedSpokenLanguage()
+void File_Mxf::SecondaryExtendedSpokenLanguageCode()
 {
     //Parsing
     Info_UTF8(Length2, Data,                                    "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::OriginalExtendedSpokenLanguage()
+void File_Mxf::OriginalExtendedSpokenLanguageCode()
 {
     //Parsing
     Info_UTF8(Length2, Data,                                    "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::SecondaryOriginalExtendedSpokenLanguage()
+void File_Mxf::SecondaryOriginalExtendedSpokenLanguageCode()
 {
     //Parsing
     Info_UTF8(Length2, Data,                                    "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::RFC5646AudioLanguageCode()
+void File_Mxf::RFC5646SpokenLanguage()
 {
     bool SizeIsPresent=false;
     if (Length2>=4)
@@ -10557,25 +10975,73 @@ void File_Mxf::RFC5646AudioLanguageCode()
     FILLING_END();
 }
 
+
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::MPEG2VideoDescriptor_SingleSequence()
+void File_Mxf::ItemName_ISO7()
+{
+    //Parsing
+    Ztring Data;
+    Get_UTF8 (Length2, Data,                                    "Data"); Element_Info1(Data);
+
+    //Filling
+    DMOmneons[InstanceUID].Name=Data;
+    Name=Data;
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ItemName()
+{
+    //Parsing
+    Ztring Data;
+    Get_UTF16B (Length2, Data,                                  "Data"); Element_Info1(Data);
+
+    //Filling
+    DMOmneons[InstanceUID].Name=Data;
+    Name=Data;
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ItemValue_ISO7()
+{
+    //Parsing
+    Ztring Data;
+    Get_UTF8 (Length2, Data,                                    "Data"); Element_Info1(Data);
+
+    //Filling
+    DMOmneons[InstanceUID].Name=Data;
+    Fill(Stream_General, 0, Name.To_UTF8().c_str(), Data);
+    Name.clear();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ItemValue()
+{
+    //Parsing
+    Ztring Data;
+    Get_UTF16B (Length2, Data,                                  "Data"); Element_Info1(Data);
+
+    //Filling
+    DMOmneons[InstanceUID].Name=Data;
+    Fill(Stream_General, 0, Name.To_UTF8().c_str(), Data);
+    Name.clear();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::SingleSequence()
 {
     //Parsing
     Info_B1(Data,                                               "Data"); Element_Info1(Data?"Yes":"No");
 }
 
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::MPEG2VideoDescriptor_ConstantBFrames()
+void File_Mxf::ConstantBPictureCount()
 {
     //Parsing
     Info_B1(Data,                                               "Data"); Element_Info1(Data?"Yes":"No");
 }
 
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::MPEG2VideoDescriptor_CodedContentType()
+void File_Mxf::CodedContentScanning()
 {
     //Parsing
     int8u Data;
@@ -10597,32 +11063,28 @@ void File_Mxf::MPEG2VideoDescriptor_CodedContentType()
 }
 
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::MPEG2VideoDescriptor_LowDelay()
+void File_Mxf::LowDelay()
 {
     //Parsing
     Info_B1(Data,                                               "Data"); Element_Info1(Data?"Yes":"No");
 }
 
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::MPEG2VideoDescriptor_ClosedGOP()
+void File_Mxf::ClosedGOP()
 {
     //Parsing
     Info_B1(Data,                                               "Data"); Element_Info1(Data?"Yes":"No");
 }
 
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::MPEG2VideoDescriptor_IdenticalGOP()
+void File_Mxf::IdenticalGOP()
 {
     //Parsing
     Info_B1(Data,                                               "Data"); Element_Info1(Data?"Yes":"No");
 }
 
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::MPEG2VideoDescriptor_MaxGOP()
+void File_Mxf::MaxGOP()
 {
     //Parsing
     int16u Data;
@@ -10635,8 +11097,7 @@ void File_Mxf::MPEG2VideoDescriptor_MaxGOP()
 }
 
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::MPEG2VideoDescriptor_BPictureCount()
+void File_Mxf::MaxBPictureCount()
 {
     //Parsing
     int16u Data;
@@ -10648,8 +11109,7 @@ void File_Mxf::MPEG2VideoDescriptor_BPictureCount()
 }
 
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::MPEG2VideoDescriptor_ProfileAndLevel()
+void File_Mxf::ProfileAndLevel()
 {
     //Parsing
     int8u profile_and_level_indication_profile, profile_and_level_indication_level;
@@ -10666,8 +11126,7 @@ void File_Mxf::MPEG2VideoDescriptor_ProfileAndLevel()
 }
 
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::Mpeg4VisualDescriptor_ProfileAndLevel()
+void File_Mxf::MPEG4VisualProfileAndLevel()
 {
     //Parsing
     int8u profile_and_level_indication;
@@ -10680,22 +11139,20 @@ void File_Mxf::Mpeg4VisualDescriptor_ProfileAndLevel()
 }
 
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::AVCDescriptor_Profile()
+void File_Mxf::AVCProfile()
 {
     //Parsing
     int8u profile_idc;
-    Get_B1 (profile_idc,                                        "profile_idc"); Element_Info1(Avc_profile_idc(profile_idc));
+    Get_B1 (profile_idc,                                        "profile_idc"); Element_Info1(Avc_profile_level_string(profile_idc));
 
     FILLING_BEGIN();
         if (profile_idc)
-            Descriptor_Fill("Format_Profile", Avc_profile_idc(profile_idc));
+            Descriptor_Fill("Temp_AVC_Profile", Ztring().From_Number(profile_idc));
     FILLING_END();
 }
 
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::MPEG2VideoDescriptor_BitRate()
+void File_Mxf::BitRate()
 {
     //Parsing
     int32u Data;
@@ -10707,8 +11164,7 @@ void File_Mxf::MPEG2VideoDescriptor_BitRate()
 }
 
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::AVCDescriptor_MaximumBitRate()
+void File_Mxf::AVCMaximumBitRate()
 {
     //Parsing
     int32u Data;
@@ -10720,61 +11176,55 @@ void File_Mxf::AVCDescriptor_MaximumBitRate()
 }
 
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::AVCDescriptor_ProfileConstraint()
+void File_Mxf::AVCProfileConstraint()
 {
     //Parsing
-    BS_Begin();
-    bool constraint_set3_flag;
-    Element_Begin1("constraints");
-        Skip_SB(                                                "constraint_set0_flag");
-        Skip_SB(                                                "constraint_set1_flag");
-        Skip_SB(                                                "constraint_set2_flag");
-        Get_SB (constraint_set3_flag,                           "constraint_set3_flag");
-        Skip_SB(                                                "constraint_set4_flag");
-        Skip_SB(                                                "constraint_set5_flag");
-        Skip_BS(2,                                              "reserved_zero_2bits");
-    Element_End0();
-    BS_End();
+    int8u constraint_set_flags;
+    Get_B1 (constraint_set_flags,                               "constraint_sett_flags");
+        Skip_Flags(constraint_set_flags, 7,                     "constraint_sett0_flag");
+        Skip_Flags(constraint_set_flags, 6,                     "constraint_sett1_flag");
+        Skip_Flags(constraint_set_flags, 5,                     "constraint_sett2_flag");
+        Skip_Flags(constraint_set_flags, 4,                     "constraint_sett3_flag");
+        Skip_Flags(constraint_set_flags, 3,                     "constraint_sett4_flag");
+        Skip_Flags(constraint_set_flags, 2,                     "constraint_sett5_flag");
+        Skip_Flags(constraint_set_flags, 1,                     "constraint_sett6_flag");
+        Skip_Flags(constraint_set_flags, 0,                     "constraint_sett7_flag");
 
     FILLING_BEGIN();
-        Descriptor_Fill("Temp_AVC_constraint_set3_flag", Ztring::ToZtring(constraint_set3_flag?1:0));
+        if (constraint_set_flags)
+            Descriptor_Fill("Temp_AVC_constraint_set", Ztring::ToZtring(constraint_set_flags));
     FILLING_END();
 }
 
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::AVCDescriptor_Level()
+void File_Mxf::AVCLevel()
 {
     //Parsing
     int8u level_idc;
-    Get_B1 (level_idc,                                          "level_idc"); Element_Info1(Ztring().From_Number(((float)level_idc)/10, (level_idc%10)?1:0));
+    Get_B1 (level_idc,                                          "level_idc");  Element_Info1(Avc_profile_level_string(0, level_idc));
 
     FILLING_BEGIN();
         if (level_idc)
-            Descriptor_Fill("Temp_AVC_Format_Level", Ztring().From_Number(((float)level_idc)/10, (level_idc%10)?1:0));
+            Descriptor_Fill("Temp_AVC_Level", Ztring().From_Number(level_idc));
     FILLING_END();
 }
 
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::AVCDescriptor_DecodingDelay()
+void File_Mxf::AVCDecodingDelay()
 {
     //Parsing
     Info_B1(Data,                                               "Data"); Element_Info1(Data==0xFF?"":(Data?"Yes":"No"));
 }
 
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::AVCDescriptor_MaximumRefFrames()
+void File_Mxf::AVCMaximumRefFrames()
 {
     //Parsing
     Info_B1(Data,                                               "max_num_ref_frames"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::AVCDescriptor_SequenceParameterSetFlag()
+void File_Mxf::AVCSequenceParameterSetFlag()
 {
     //Parsing
     BS_Begin();
@@ -10785,8 +11235,7 @@ void File_Mxf::AVCDescriptor_SequenceParameterSetFlag()
 }
 
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::AVCDescriptor_PictureParameterSetFlag()
+void File_Mxf::AVCPictureParameterSetFlag()
 {
     //Parsing
     BS_Begin();
@@ -10797,8 +11246,7 @@ void File_Mxf::AVCDescriptor_PictureParameterSetFlag()
 }
 
 //---------------------------------------------------------------------------
-// 0x
-void File_Mxf::AVCDescriptor_AverageBitRate()
+void File_Mxf::AVCAverageBitRate()
 {
     //Parsing
     int32u Data;
@@ -10810,7 +11258,6 @@ void File_Mxf::AVCDescriptor_AverageBitRate()
 }
 
 //---------------------------------------------------------------------------
-// 0x4001
 void File_Mxf::NetworkLocator_URLString()
 {
     //Parsing
@@ -10823,16 +11270,72 @@ void File_Mxf::NetworkLocator_URLString()
 }
 
 //---------------------------------------------------------------------------
-// 0x3F01
+void File_Mxf::MGALinkID()
+{
+    //Parsing
+    Skip_UUID(                                                  "UUID");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::MGAAudioMetadataIndex()
+{
+    //Parsing
+    Skip_B1(                                                    "Data");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::MGAAudioMetadataIdentifier()
+{
+    //Parsing
+    Skip_B1(                                                    "Data");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::MGAAudioMetadataPayloadULArray()
+{
+    //Parsing
+    VECTOR(16);
+    for (int32u i=0; i<Count; i++)
+    {
+        //Parsing
+        Skip_UUID(                                              "UUID");
+    }
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::MGAMetadataSectionLinkID()
+{
+    //Parsing
+    Skip_UUID(                                                  "UUID");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::SADMMetadataSectionLinkID()
+{
+    //Parsing
+    Skip_UUID(                                                  "UUID");
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::SADMProfileLevelULBatch()
+{
+    //Parsing
+    VECTOR(16);
+    for (int32u i=0; i<Count; i++)
+    {
+        //Parsing
+        Skip_UUID(                                              "UUID");
+    }
+}
+
+//---------------------------------------------------------------------------
 void File_Mxf::MultipleDescriptor_FileDescriptors()
 {
     Descriptors[InstanceUID].SubDescriptors.clear();
 
     //Parsing
-    if (Vector(16)==(int32u)-1)
-        return;
-    size_t StreamOrder=0;
-    while (Element_Offset<Element_Size)
+    VECTOR(16);
+    for (int32u i=0; i<Count; i++)
     {
         //Parsing
         int128u Data;
@@ -10840,10 +11343,16 @@ void File_Mxf::MultipleDescriptor_FileDescriptors()
 
         FILLING_BEGIN();
             Descriptors[InstanceUID].SubDescriptors.push_back(Data);
-            Descriptors[Data].Infos["StreamOrder"].From_Number(StreamOrder);
-            StreamOrder++;
+            Descriptors[Data].Infos["StreamOrder"].From_Number(i);
         FILLING_END();
     }
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::RFC5646TextLanguageCode()
+{
+    //Parsing
+    Skip_UTF16B(Length2,                                        "Content");
 }
 
 //---------------------------------------------------------------------------
@@ -10851,7 +11360,7 @@ void File_Mxf::PartitionMetadata()
 {
     //Parsing
     int64u PreviousPartition, FooterPartition, HeaderByteCount, IndexByteCount, BodyOffset;
-    int32u IndexSID;
+    int32u IndexSID, BodySID;
     int32u KAGSize;
     int16u MajorVersion, MinorVersion;
     Get_B2 (MajorVersion,                                       "MajorVersion");
@@ -10864,17 +11373,17 @@ void File_Mxf::PartitionMetadata()
     Get_B8 (IndexByteCount,                                     "IndexByteCount");
     Get_B4 (IndexSID,                                           "IndexSID");
     Get_B8 (BodyOffset,                                         "BodyOffset");
-    Skip_B4(                                                    "BodySID");
+    Get_B4 (BodySID,                                            "BodySID");
     Get_UL (OperationalPattern,                                 "OperationalPattern", Mxf_OperationalPattern);
 
     Element_Begin1("EssenceContainers"); //Vector
-        if (Vector(16)==(int32u)-1)
+        auto Count=Vector(16);
+        if (Count==(int32u)-1)
         {
             Element_End0();
             return;
         }
-        int32u Count=(Element_Size-Element_Offset)/16;
-        while (Element_Offset<Element_Size)
+        for (int32u i=0; i<Count; i++)
         {
             int128u EssenceContainer;
             Get_UL (EssenceContainer,                           "EssenceContainer", Mxf_EssenceContainer);
@@ -10906,6 +11415,7 @@ void File_Mxf::PartitionMetadata()
         Partition.HeaderByteCount=HeaderByteCount;
         Partition.IndexByteCount=IndexByteCount;
         Partition.BodyOffset=BodyOffset;
+        Partition.BodySID=BodySID;
         Partitions_Pos=0;
         while (Partitions_Pos<Partitions.size() && Partitions[Partitions_Pos].StreamOffset<Partition.StreamOffset)
             Partitions_Pos++;
@@ -10982,9 +11492,8 @@ void File_Mxf::PartitionMetadata()
 
         #if MEDIAINFO_ADVANCED
             //IsTruncated
-            bool IsTruncated;
             if (!Trusted_Get())
-                IsTruncated=true;
+                IsTruncated();
             else
             {
                 int32u KAGSize_Corrected=KAGSize;
@@ -10997,13 +11506,12 @@ void File_Mxf::PartitionMetadata()
                     Element_Size_WithPadding+=KAGSize_Corrected;
                 }
 
-                if (File_Offset+Buffer_Offset-Header_Size+Element_Size_WithPadding+HeaderByteCount+IndexByteCount > File_Size)
-                    IsTruncated=true;
-                else
-                    IsTruncated=false;
+                auto ExpectedSize=File_Offset+Buffer_Offset-Header_Size+Element_Size_WithPadding;
+                if ((Code.lo&0xFF0000)==0x020000) //If Header Partition Pack
+                    ExpectedSize+=HeaderByteCount+IndexByteCount;
+                if (ExpectedSize>File_Size)
+                    IsTruncated(ExpectedSize, true);
             }
-            if (IsTruncated)
-                Fill(Stream_General, 0, "IsTruncated", "Yes", Unlimited, true, true);
         #endif //MEDIAINFO_ADVANCED
     }
 
@@ -11011,7 +11519,6 @@ void File_Mxf::PartitionMetadata()
 }
 
 //---------------------------------------------------------------------------
-// 0x3B03
 void File_Mxf::Preface_ContentStorage()
 {
     //Parsing
@@ -11024,7 +11531,6 @@ void File_Mxf::Preface_ContentStorage()
 }
 
 //---------------------------------------------------------------------------
-// 0x3B05
 void File_Mxf::Preface_Version()
 {
     //Parsing
@@ -11034,13 +11540,11 @@ void File_Mxf::Preface_Version()
 }
 
 //---------------------------------------------------------------------------
-// 0x3B06
 void File_Mxf::Preface_Identifications()
 {
     //Parsing
-    if (Vector(16)==(int32u)-1)
-        return;
-    while (Element_Offset<Element_Size)
+    VECTOR(16);
+    for (int32u i=0; i<Count; i++)
     {
         Element_Begin1("Identification");
         int128u Data;
@@ -11054,7 +11558,6 @@ void File_Mxf::Preface_Identifications()
 }
 
 //---------------------------------------------------------------------------
-// 0x3B07
 void File_Mxf::Preface_ObjectModelVersion()
 {
     //Parsing
@@ -11062,7 +11565,6 @@ void File_Mxf::Preface_ObjectModelVersion()
 }
 
 //---------------------------------------------------------------------------
-// 0x3B08
 void File_Mxf::Preface_PrimaryPackage()
 {
     //Parsing
@@ -11075,7 +11577,6 @@ void File_Mxf::Preface_PrimaryPackage()
 }
 
 //---------------------------------------------------------------------------
-// 0x3B09
 void File_Mxf::Preface_OperationalPattern()
 {
     //Parsing
@@ -11083,70 +11584,57 @@ void File_Mxf::Preface_OperationalPattern()
 }
 
 //---------------------------------------------------------------------------
-// 0x3B0A
 void File_Mxf::Preface_EssenceContainers()
 {
     //Parsing
-    if (Vector(16)==(int32u)-1)
-        return;
-    while (Element_Offset<Element_Size)
+    VECTOR(16);
+    for (int32u i=0; i<Count; i++)
     {
         Info_UL(EssenceContainer,                               "EssenceContainer", Mxf_EssenceContainer);
     }
 }
 
 //---------------------------------------------------------------------------
-// 0x3B0B
 void File_Mxf::Preface_DMSchemes()
 {
     //Parsing
-    int32u Length;
-    if ((Length=Vector())==(int32u)-1)
-        return;
-    while (Element_Offset<Element_Size)
-        if (Length==16)
-        {
-            Info_UL(Data,                                       "DMScheme", NULL); Element_Info1(Ztring().From_UUID(Data));
-        }
-        else
-            Skip_XX(Length,                                     "DMScheme");
+    VECTOR(16);
+    for (int32u i=0; i<Count; i++)
+    {
+        Info_UL(Data,                                           "DMScheme", NULL); Element_Info1(Ztring().From_UUID(Data));
+    }
 }
 
 //---------------------------------------------------------------------------
-// 0x3401
-void File_Mxf::RGBAEssenceDescriptor_PixelLayout()
+void File_Mxf::RGBADescriptor_PixelLayout()
 {
     //Parsing
     Info_B4(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3403
-void File_Mxf::RGBAEssenceDescriptor_Palette()
+void File_Mxf::RGBADescriptor_Palette()
 {
     //Parsing
     Info_B4(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3404
-void File_Mxf::RGBAEssenceDescriptor_PaletteLayout()
+void File_Mxf::RGBADescriptor_PaletteLayout()
 {
     //Parsing
     Info_B4(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3405
-void File_Mxf::RGBAEssenceDescriptor_ScanningDirection()
+void File_Mxf::RGBADescriptor_ScanningDirection()
 {
     //Parsing
     Info_B1(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3406
-void File_Mxf::RGBAEssenceDescriptor_ComponentMaxRef()
+void File_Mxf::RGBADescriptor_ComponentMaxRef()
 {
     //Parsing
     int32u Data;
@@ -11160,8 +11648,7 @@ void File_Mxf::RGBAEssenceDescriptor_ComponentMaxRef()
 }
 
 //---------------------------------------------------------------------------
-// 0x3407
-void File_Mxf::RGBAEssenceDescriptor_ComponentMinRef()
+void File_Mxf::RGBADescriptor_ComponentMinRef()
 {
     //Parsing
     int32u Data;
@@ -11175,31 +11662,27 @@ void File_Mxf::RGBAEssenceDescriptor_ComponentMinRef()
 }
 
 //---------------------------------------------------------------------------
-// 0x3408
-void File_Mxf::RGBAEssenceDescriptor_AlphaMaxRef()
+void File_Mxf::RGBADescriptor_AlphaMaxRef()
 {
     //Parsing
     Info_B4(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3409
-void File_Mxf::RGBAEssenceDescriptor_AlphaMinRef()
+void File_Mxf::RGBADescriptor_AlphaMinRef()
 {
     //Parsing
     Info_B4(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x1001
 void File_Mxf::Sequence_StructuralComponents()
 {
     Components[InstanceUID].StructuralComponents.clear();
 
     //Parsing
-    if (Vector(16)==(int32u)-1)
-        return;
-    while (Element_Offset<Element_Size)
+    VECTOR(16);
+    for (int32u i=0; i<Count; i++)
     {
         int128u Data;
         Get_UUID (Data,                                         "StructuralComponent");
@@ -11211,7 +11694,6 @@ void File_Mxf::Sequence_StructuralComponents()
 }
 
 //---------------------------------------------------------------------------
-// 0x1101
 void File_Mxf::SourceClip_SourcePackageID()
 {
     //Parsing
@@ -11224,7 +11706,6 @@ void File_Mxf::SourceClip_SourcePackageID()
 }
 
 //---------------------------------------------------------------------------
-// 0x1102
 void File_Mxf::SourceClip_SourceTrackID()
 {
     //Parsing
@@ -11238,7 +11719,6 @@ void File_Mxf::SourceClip_SourceTrackID()
 }
 
 //---------------------------------------------------------------------------
-// 0x1201
 void File_Mxf::SourceClip_StartPosition()
 {
     //Parsing
@@ -11246,7 +11726,6 @@ void File_Mxf::SourceClip_StartPosition()
 }
 
 //---------------------------------------------------------------------------
-// 0x4701
 void File_Mxf::SourcePackage_Descriptor()
 {
     //Parsing
@@ -11259,15 +11738,13 @@ void File_Mxf::SourcePackage_Descriptor()
 }
 
 //---------------------------------------------------------------------------
-// 0x0201
 void File_Mxf::StructuralComponent_DataDefinition()
 {
     //Parsing
-    Info_UL(Data,                                               "Data", Mxf_Sequence_DataDefinition); Element_Info1(Mxf_Sequence_DataDefinition(Data));
+    Info_UUID(Data,                                             "Data"); Element_Info1(Mxf_Sequence_DataDefinition(Data));
 }
 
 //---------------------------------------------------------------------------
-// 0x0202
 void File_Mxf::StructuralComponent_Duration()
 {
     //Parsing
@@ -11281,7 +11758,6 @@ void File_Mxf::StructuralComponent_Duration()
 }
 
 //---------------------------------------------------------------------------
-// 0x0101
 void File_Mxf::SystemScheme1_FrameCount()
 {
     //Parsing
@@ -11289,105 +11765,166 @@ void File_Mxf::SystemScheme1_FrameCount()
 }
 
 //---------------------------------------------------------------------------
-// 0x0102
 void File_Mxf::SystemScheme1_TimeCodeArray()
 {
     //Parsing
-    if (Vector(8)==(int32u)-1)
-        return;
-    while (Element_Offset<Element_Size)
+    VECTOR(8);
+    auto& SystemScheme=SystemScheme1s[Element_Code&0xFFFF];
+    bool IsStart=SystemScheme.TimeCodeArray_StartTimecodes.empty();
+    for (int32u i=0; i<Count; i++)
     {
         Element_Begin1("TimeCode");
         int8u Frames_Units, Frames_Tens, Seconds_Units, Seconds_Tens, Minutes_Units, Minutes_Tens, Hours_Units, Hours_Tens;
         bool  DropFrame;
         BS_Begin();
 
-        Skip_SB(                                                "CF - Color fame");
+        #if MEDIAINFO_ADVANCED
+            int32u BG;
+            bool ColorFrame, FieldPhaseBgf0, Bgf0Bgf2, Bgf1, Bgf2FieldPhase;
+            #define Get_TCB(_1,_2)      Get_SB(_1,_2)
+            #define Get_TC4(_1,_2)      Get_L4(_1,_2)
+        #else
+            #define Get_TCB(_1,_2)      Skip_SB(_2)
+            #define Get_TC4(_1,_2)      Skip_L4(_2)
+        #endif
+
+        Get_TCB(   ColorFrame,                                  "CF - Color fame");
         Get_SB (   DropFrame,                                   "DP - Drop frame");
         Get_S1 (2, Frames_Tens,                                 "Frames (Tens)");
         Get_S1 (4, Frames_Units,                                "Frames (Units)");
 
-        Skip_SB(                                                "FP - Field Phase / BGF0");
+        Get_TCB(   FieldPhaseBgf0,                              "FP - Field Phase / BGF0");
         Get_S1 (3, Seconds_Tens,                                "Seconds (Tens)");
         Get_S1 (4, Seconds_Units,                               "Seconds (Units)");
 
-        Skip_SB(                                                "BGF0 / BGF2");
+        Get_TCB(   Bgf0Bgf2,                                    "BGF0 / BGF2");
         Get_S1 (3, Minutes_Tens,                                "Minutes (Tens)");
         Get_S1 (4, Minutes_Units,                               "Minutes (Units)");
 
-        Skip_SB(                                                "BGF2 / Field Phase");
-        Skip_SB(                                                "BGF1");
+        Get_TCB(   Bgf2FieldPhase,                              "BGF2 / Field Phase");
+        Get_TCB(   Bgf1,                                        "BGF1");
         Get_S1 (2, Hours_Tens,                                  "Hours (Tens)");
         Get_S1 (4, Hours_Units,                                 "Hours (Units)");
 
-        Skip_S1(4,                                              "BG2");
-        Skip_S1(4,                                              "BG1");
-
-        Skip_S1(4,                                              "BG4");
-        Skip_S1(4,                                              "BG3");
-
-        Skip_S1(4,                                              "BG6");
-        Skip_S1(4,                                              "BG5");
-
-        Skip_S1(4,                                              "BG8");
-        Skip_S1(4,                                              "BG7");
-
         BS_End();
 
-        int64u TimeCode=(int64u)(Hours_Tens     *10*60*60*1000
-                               + Hours_Units       *60*60*1000
-                               + Minutes_Tens      *10*60*1000
-                               + Minutes_Units        *60*1000
-                               + Seconds_Tens         *10*1000
-                               + Seconds_Units           *1000
-                               + (SystemScheme1_FrameRateFromDescriptor?float64_int32s((Frames_Tens*10+Frames_Units)*1000/(float64)SystemScheme1_FrameRateFromDescriptor):0));
+        Get_TC4(   BG,                                          "BG");
 
-        Element_Info1(Ztring().Duration_From_Milliseconds(TimeCode));
+        #undef Get_TCB
+        #undef Get_TC4
 
+        auto FramesMax=MxfTimeCodeForDelay.IsInit()?(MxfTimeCodeForDelay.RoundedTimecodeBase-1):0;
+        Element_Info1(TimeCode(Hours_Tens*10+Hours_Units, Minutes_Tens*10+Minutes_Units, Seconds_Tens*10+Seconds_Units, Frames_Tens*10+Frames_Units, FramesMax, TimeCode::DropFrame(DropFrame).FPS1001(Is1001)).ToString());
         Element_End0();
 
         //TimeCode
-        if (SystemScheme1_TimeCodeArray_StartTimecode_ms==(int64u)-1 && !IsParsingEnd && IsParsingMiddle_MaxOffset==(int64u)-1)
+        if (IsStart && !IsParsingEnd && IsParsingMiddle_MaxOffset==(int64u)-1)
         {
-            SystemScheme1_TimeCodeArray_StartTimecode_ms=TimeCode;
-
-            SystemScheme1_TimeCodeArray_StartTimecode+=('0'+Hours_Tens);
-            SystemScheme1_TimeCodeArray_StartTimecode+=('0'+Hours_Units);
-            SystemScheme1_TimeCodeArray_StartTimecode+=':';
-            SystemScheme1_TimeCodeArray_StartTimecode+=('0'+Minutes_Tens);
-            SystemScheme1_TimeCodeArray_StartTimecode+=('0'+Minutes_Units);
-            SystemScheme1_TimeCodeArray_StartTimecode+=':';
-            SystemScheme1_TimeCodeArray_StartTimecode+=('0'+Seconds_Tens);
-            SystemScheme1_TimeCodeArray_StartTimecode+=('0'+Seconds_Units);
-            SystemScheme1_TimeCodeArray_StartTimecode+=DropFrame?';':':';
-            SystemScheme1_TimeCodeArray_StartTimecode+=('0'+Frames_Tens);
-            SystemScheme1_TimeCodeArray_StartTimecode+=('0'+Frames_Units);
+            SystemScheme.TimeCodeArray_StartTimecodes.emplace_back(Hours_Tens*10+Hours_Units, Minutes_Tens*10+Minutes_Units, Seconds_Tens*10+Seconds_Units, Frames_Tens*10+Frames_Units, FramesMax, TimeCode::DropFrame(DropFrame).FPS1001(Is1001));
         }
+
+        #if MEDIAINFO_ADVANCED
+            if (Config->TimeCode_Dumps)
+            {
+                auto id="SystemScheme1-"+to_string(Element_Code&0xFF)+'-'+to_string(i);
+                auto& TimeCode_Dump=(*Config->TimeCode_Dumps)[id];
+                if (TimeCode_Dump.List.empty())
+                {
+                    TimeCode_Dump.Attributes_First+=" id=\""+id+"\" format=\"smpte-st331\"";
+
+                    //No clear frame rate, looking for the common frame rate
+                    float64 FrameRate=0;
+                    for (const auto& Track : Tracks)
+                    {
+                        if (Track.second.EditRate)
+                        {
+                            auto NewFrameRate=Track.second.EditRate;
+                            if (!FrameRate)
+                                FrameRate=NewFrameRate;
+                            else if (NewFrameRate!=FrameRate)
+                            {
+                                FrameRate=0;
+                                break;
+                            }
+                        }
+                    }
+                    if (FrameRate>0)
+                    {
+                        TimeCode_Dump.Attributes_First+=" frame_rate=\"";
+                        auto FrameRateInt=(int64u)ceil(FrameRate);
+                        if (FrameRateInt==FrameRate)
+                            TimeCode_Dump.Attributes_First+=to_string(FrameRateInt);
+                        else
+                        {
+                            auto Test_1_1001=FrameRateInt/FrameRate;
+                            if (Test_1_1001>=1.00005 && Test_1_1001<1.001005)
+                                TimeCode_Dump.Attributes_First+=to_string(FrameRateInt)+"000/1001";
+                            else
+                                TimeCode_Dump.Attributes_First+=to_string(FrameRate);
+                        }
+                        TimeCode_Dump.Attributes_First+='\"';
+                        FrameRateInt--;
+                        if (FrameRateInt<=numeric_limits<int32u>::max())
+                            (*Config->TimeCode_Dumps)[id].FramesMax=(int32u)(FrameRateInt);
+                    }
+                    TimeCode_Dump.Attributes_Last+=" fp=\"0\" bgf=\"0\" bg=\"0\"";
+                }
+                TimeCode CurrentTC(Hours_Tens*10+Hours_Units, Minutes_Tens*10+Minutes_Units, Seconds_Tens*10+Seconds_Units, Frames_Tens*10+Frames_Units, TimeCode_Dump.FramesMax, TimeCode::DropFrame(DropFrame).FPS1001(Is1001));
+                TimeCode_Dump.List+="    <tc v=\""+CurrentTC.ToString()+'\"';
+                if (FieldPhaseBgf0)
+                    TimeCode_Dump.List+=" fp=\"1\"";
+                if (Bgf0Bgf2 || Bgf1 || Bgf2FieldPhase)
+                    TimeCode_Dump.List+=" bgf=\""+to_string((Bgf2FieldPhase<<2)|(Bgf1<<1)|(Bgf2FieldPhase<<0))+"\"";
+                if (BG)
+                    TimeCode_Dump.List+=" bgf=\""+to_string(BG)+"\"";
+                if (TimeCode_Dump.LastTC.IsValid() && TimeCode_Dump.LastTC.GetFramesMax() && CurrentTC!=TimeCode_Dump.LastTC+1)
+                    TimeCode_Dump.List+=" nc=\"1\"";
+                TimeCode_Dump.LastTC=CurrentTC;
+                TimeCode_Dump.List+="/>\n";
+                TimeCode_Dump.FrameCount++;
+            }
+        #endif //MEDIAINFO_ADVANCED
     }
 
-    SystemSchemes[Element_Code&0xFFFF].IsTimeCode=true;
+    if (IsStart && SystemScheme.TimeCodeArray_StartTimecodes.size()>1)
+    {
+        bool IsNotContinuous=false;
+        auto Current=SystemScheme.TimeCodeArray_StartTimecodes.front();
+        for (size_t i=1; i<SystemScheme.TimeCodeArray_StartTimecodes.size(); i++)
+        {
+            const auto& TC=SystemScheme.TimeCodeArray_StartTimecodes[i];
+            if (TC==Current)
+                continue;
+            Current++;
+            if (TC!=Current)
+            {
+                IsNotContinuous=true;
+                break;
+            }
+        }
+        if (!IsNotContinuous)
+        {
+            SystemScheme.TimeCodeArray_StartTimecodes.resize(1);
+        }
+    }
 }
 
 //---------------------------------------------------------------------------
-// 0x0103
 void File_Mxf::SystemScheme1_ClipIDArray()
 {
     //Parsing
-    if (Vector(32)==(int32u)-1)
-        return;
-    while (Element_Offset<Element_Size)
+    VECTOR(32);
+    for (int32u i=0; i<Count; i++)
     {
         Skip_UMID(                                              );
     }
 }
 
 //---------------------------------------------------------------------------
-// 0x0104
 void File_Mxf::SystemScheme1_ExtendedClipIDArray()
 {
     //Parsing
-    if (Vector(64)==(int32u)-1)
-        return;
+    VECTOR(64);
     while (Element_Offset<Element_Size)
     {
         Skip_UMID(                                              ); //ExtUMID (ToDo: merge)
@@ -11396,28 +11933,26 @@ void File_Mxf::SystemScheme1_ExtendedClipIDArray()
 }
 
 //---------------------------------------------------------------------------
-// 0x0105
 void File_Mxf::SystemScheme1_VideoIndexArray()
 {
     //Parsing
-    int32u Length;
-    if ((Length=Vector())==(int32u)-1)
+    auto Count=Vector();
+    if (Count==(int32u)-1)
         return;
-    while (Element_Offset<Element_Size)
+    int32u Length=BigEndian2int32u(Buffer+Buffer_Offset+(size_t)Element_Offset-4); //Not provided by Vector()
+    for (int32u i=0; i<Count; i++)
     {
         Skip_XX(Length,                                         "Video Index");
     }
 }
 
 //---------------------------------------------------------------------------
-// 0x0106
 void File_Mxf::SystemScheme1_KLVMetadataSequence()
 {
     Skip_XX(Element_Size,                                        "KLV");
 }
 
 //---------------------------------------------------------------------------
-// 0x3001
 void File_Mxf::SystemScheme1_SampleRate()
 {
     //Parsing
@@ -11425,7 +11960,6 @@ void File_Mxf::SystemScheme1_SampleRate()
 }
 
 //---------------------------------------------------------------------------
-// 0x4804
 void File_Mxf::SystemScheme1_EssenceTrackNumber()
 {
     //Parsing
@@ -11433,49 +11967,43 @@ void File_Mxf::SystemScheme1_EssenceTrackNumber()
 }
 
 //---------------------------------------------------------------------------
-// 0x6801
 void File_Mxf::SystemScheme1_EssenceTrackNumberBatch()
 {
     //Parsing
-    if (Vector(4)==(int32u)-1)
-        return;
-    while (Element_Offset<Element_Size)
+    VECTOR(4);
+    for (int32u i=0; i<Count; i++)
     {
         Skip_B4(                                                "Track Number");
     }
 }
 
 //---------------------------------------------------------------------------
-// 0x6803
 void File_Mxf::SystemScheme1_ContentPackageIndexArray()
 {
     //Parsing
-    int32u Length;
-    if ((Length=Vector())==(int32u)-1)
+    auto Count=Vector();
+    if (Count==(int32u)-1)
         return;
-    while (Element_Offset<Element_Size)
+    int32u Length=BigEndian2int32u(Buffer+Buffer_Offset+(size_t)Element_Offset-4); //Not provided by Vector()
+    for (int32u i=0; i<Count; i++)
     {
         Skip_XX(Length,                                         "Index Entry");
     }
 }
 
 //---------------------------------------------------------------------------
-// 0x4101
 void File_Mxf::TextLocator_LocatorName()
 {
     //Parsing
     Ztring Data;
     Get_UTF16B (Length2, Data,                                  "Data"); Element_Info1(Data);
 
-    FILLING_BEGIN();
-        Locators[InstanceUID].EssenceLocator=Data;
-        Locators[InstanceUID].IsTextLocator=true;
-    FILLING_END();
+    Locators[InstanceUID].EssenceLocator=Data;
+    Locators[InstanceUID].IsTextLocator=true;
 }
 
 //---------------------------------------------------------------------------
-// 0x1501
-void File_Mxf::TimecodeComponent_StartTimecode()
+void File_Mxf::TimecodeGroup_StartTimecode()
 {
     //Parsing
     int64u Data;
@@ -11484,6 +12012,7 @@ void File_Mxf::TimecodeComponent_StartTimecode()
     FILLING_BEGIN();
         if (Data!=(int64u)-1)
         {
+            MxfTimeCodeForDelay.InstanceUID=InstanceUID;
             MxfTimeCodeForDelay.StartTimecode=Data;
             if (MxfTimeCodeForDelay.RoundedTimecodeBase)
             {
@@ -11500,54 +12029,25 @@ void File_Mxf::TimecodeComponent_StartTimecode()
             }
         }
 
+        Components[InstanceUID].MxfTimeCode.InstanceUID=InstanceUID;
         Components[InstanceUID].MxfTimeCode.StartTimecode=Data;
     FILLING_END();
 }
 
 //---------------------------------------------------------------------------
-// 0x1502
-void File_Mxf::TimecodeComponent_RoundedTimecodeBase()
+void File_Mxf::TimecodeGroup_RoundedTimecodeBase()
 {
     //Parsing
     int16u Data;
     Get_B2 (Data,                                                "Data"); Element_Info1(Data);
 
-    FILLING_BEGIN();
-        if (Data && Data!=(int16u)-1)
+    if (Data && Data!=(int16u)-1)
+    {
+        MxfTimeCodeForDelay.RoundedTimecodeBase=Data;
+        if (MxfTimeCodeForDelay.StartTimecode!=(int64u)-1)
         {
-            MxfTimeCodeForDelay.RoundedTimecodeBase=Data;
-            if (MxfTimeCodeForDelay.StartTimecode!=(int64u)-1)
-            {
-                DTS_Delay=((float64)MxfTimeCodeForDelay.StartTimecode)/MxfTimeCodeForDelay.RoundedTimecodeBase;
-                if (MxfTimeCodeForDelay.DropFrame)
-                {
-                    DTS_Delay*=1001;
-                    DTS_Delay/=1000;
-                }
-                FrameInfo.DTS=float64_int64s(DTS_Delay*1000000000);
-                #if MEDIAINFO_DEMUX
-                    Config->Demux_Offset_DTS_FromStream=FrameInfo.DTS;
-                #endif //MEDIAINFO_DEMUX
-            }
-        }
-
-        Components[InstanceUID].MxfTimeCode.RoundedTimecodeBase=Data;
-    FILLING_END();
-}
-
-//---------------------------------------------------------------------------
-// 0x1503
-void File_Mxf::TimecodeComponent_DropFrame()
-{
-    //Parsing
-    int8u Data;
-    Get_B1 (Data,                                                "Data"); Element_Info1(Data);
-
-    FILLING_BEGIN();
-        if (Data!=(int8u)-1 && Data)
-        {
-            MxfTimeCodeForDelay.DropFrame=true;
-            if (DTS_Delay)
+            DTS_Delay=((float64)MxfTimeCodeForDelay.StartTimecode)/MxfTimeCodeForDelay.RoundedTimecodeBase;
+            if (MxfTimeCodeForDelay.DropFrame)
             {
                 DTS_Delay*=1001;
                 DTS_Delay/=1000;
@@ -11557,147 +12057,150 @@ void File_Mxf::TimecodeComponent_DropFrame()
                 Config->Demux_Offset_DTS_FromStream=FrameInfo.DTS;
             #endif //MEDIAINFO_DEMUX
         }
+    }
 
-        Components[InstanceUID].MxfTimeCode.DropFrame=Data?true:false;
-    FILLING_END();
+    Components[InstanceUID].MxfTimeCode.RoundedTimecodeBase=Data;
 }
 
 //---------------------------------------------------------------------------
-// 0x4B01
+void File_Mxf::TimecodeGroup_DropFrame()
+{
+    //Parsing
+    int8u Data;
+    Get_B1 (Data,                                                "Data"); Element_Info1(Data);
+
+    if (Data!=(int8u)-1 && Data)
+    {
+        MxfTimeCodeForDelay.DropFrame=true;
+        if (DTS_Delay)
+        {
+            DTS_Delay*=1001;
+            DTS_Delay/=1000;
+        }
+        FrameInfo.DTS=float64_int64s(DTS_Delay*1000000000);
+        #if MEDIAINFO_DEMUX
+            Config->Demux_Offset_DTS_FromStream=FrameInfo.DTS;
+        #endif //MEDIAINFO_DEMUX
+    }
+
+    Components[InstanceUID].MxfTimeCode.DropFrame=Data?true:false;
+}
+
+//---------------------------------------------------------------------------
 void File_Mxf::Track_EditRate()
 {
     //Parsing
     float64 Data;
     Get_Rational(Data); Element_Info1(Data);
 
-    FILLING_BEGIN();
-        Tracks[InstanceUID].EditRate=Data;
-    FILLING_END();
+    Tracks[InstanceUID].EditRate=Data;
+    if (Data!=(int)Data)
+        Is1001=true;
 }
 
 //---------------------------------------------------------------------------
-// 0x4B02
 void File_Mxf::Track_Origin()
 {
     //Parsing
     int64u Data;
     Get_B8 (Data,                                                "Data"); Element_Info1(Data); //Note: Origin is signed but there is no signed Get_* in MediaInfo
 
-    FILLING_BEGIN();
-        Tracks[InstanceUID].Origin=(int64s)Data; //Origin is signed
-    FILLING_END();
+    Tracks[InstanceUID].Origin=(int64s)Data; //Origin is signed
 }
 
 //---------------------------------------------------------------------------
-// 0x3D09
-void File_Mxf::WaveAudioDescriptor_AvgBps()
+void File_Mxf::WAVEPCMDescriptor_AvgBps()
 {
     //Parsing
     int32u Data;
     Get_B4 (Data,                                               "Data"); Element_Info1(Data);
 
-    FILLING_BEGIN();
-        Descriptor_Fill("BitRate", Ztring().From_Number(Data*8));
-        Descriptors[InstanceUID].ByteRate=Data;
-    FILLING_END();
+    Descriptor_Fill("BitRate", Ztring().From_Number(Data*8));
+    Descriptors[InstanceUID].ByteRate=Data;
 }
 
 //---------------------------------------------------------------------------
-// 0x3D0A
-void File_Mxf::WaveAudioDescriptor_BlockAlign()
+void File_Mxf::WAVEPCMDescriptor_BlockAlign()
 {
     //Parsing
     int16u Data;
     Get_B2 (Data,                                               "Data"); Element_Info1(Data);
 
-    FILLING_BEGIN();
-        Descriptors[InstanceUID].BlockAlign=Data;
-    FILLING_END();
+    Descriptors[InstanceUID].BlockAlign=Data;
 }
 
 //---------------------------------------------------------------------------
-// 0x3D0B
-void File_Mxf::WaveAudioDescriptor_SequenceOffset()
+void File_Mxf::WAVEPCMDescriptor_SequenceOffset()
 {
     //Parsing
     Info_B1(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3D29
-void File_Mxf::WaveAudioDescriptor_PeakEnvelopeVersion()
+void File_Mxf::WAVEPCMDescriptor_PeakEnvelopeVersion()
 {
     //Parsing
     Info_B4(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3D2A
-void File_Mxf::WaveAudioDescriptor_PeakEnvelopeFormat()
+void File_Mxf::WAVEPCMDescriptor_PeakEnvelopeFormat()
 {
     //Parsing
     Info_B4(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3D2B
-void File_Mxf::WaveAudioDescriptor_PointsPerPeakValue()
+void File_Mxf::WAVEPCMDescriptor_PointsPerPeakValue()
 {
     //Parsing
     Info_B4(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3D2C
-void File_Mxf::WaveAudioDescriptor_PeakEnvelopeBlockSize()
+void File_Mxf::WAVEPCMDescriptor_PeakEnvelopeBlockSize()
 {
     //Parsing
     Info_B4(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3D2D
-void File_Mxf::WaveAudioDescriptor_PeakChannels()
+void File_Mxf::WAVEPCMDescriptor_PeakChannels()
 {
     //Parsing
     Info_B4(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3D2E
-void File_Mxf::WaveAudioDescriptor_PeakFrames()
+void File_Mxf::WAVEPCMDescriptor_PeakFrames()
 {
     //Parsing
     Info_B4(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3D2F
-void File_Mxf::WaveAudioDescriptor_PeakOfPeaksPosition()
+void File_Mxf::WAVEPCMDescriptor_PeakOfPeaksPosition()
 {
     //Parsing
     Info_B8(Data,                                                "Data"); Element_Info1(Data);
 }
 
 //---------------------------------------------------------------------------
-// 0x3D30
-void File_Mxf::WaveAudioDescriptor_PeakEnvelopeTimestamp()
+void File_Mxf::WAVEPCMDescriptor_PeakEnvelopeTimestamp()
 {
     //Parsing
     Info_Timestamp();
 }
 
 //---------------------------------------------------------------------------
-// 0x3D31
-void File_Mxf::WaveAudioDescriptor_PeakEnvelopeData()
+void File_Mxf::WAVEPCMDescriptor_PeakEnvelopeData()
 {
     //Parsing
     Skip_XX(Length2,                                            "Data");
 }
 
 //---------------------------------------------------------------------------
-// 0x3D32
-void File_Mxf::WaveAudioDescriptor_ChannelAssignment()
+void File_Mxf::WAVEPCMDescriptor_ChannelAssignment()
 {
     //Parsing
     int128u Value;
@@ -11720,8 +12223,7 @@ void File_Mxf::WaveAudioDescriptor_ChannelAssignment()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::LensUnitMetadata_IrisFNumber()
+void File_Mxf::LensUnitAcquisitionMetadata_IrisFNumber()
 {
     //Parsing
     int16u Value;
@@ -11757,8 +12259,7 @@ float32 BigEndian2float16lens(const char* Liste)
 inline float32 BigEndian2float16lens(const int8u* List) {return BigEndian2float16lens((const char*)List);}
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::LensUnitMetadata_FocusPositionFromImagePlane()
+void File_Mxf::LensUnitAcquisitionMetadata_FocusPositionFromImagePlane()
 {
     //Parsing
     float32 Value;
@@ -11771,8 +12272,7 @@ void File_Mxf::LensUnitMetadata_FocusPositionFromImagePlane()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::LensUnitMetadata_FocusPositionFromFrontLensVertex()
+void File_Mxf::LensUnitAcquisitionMetadata_FocusPositionFromFrontLensVertex()
 {
     //Parsing
     float32 Value;
@@ -11785,8 +12285,7 @@ void File_Mxf::LensUnitMetadata_FocusPositionFromFrontLensVertex()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::LensUnitMetadata_MacroSetting()
+void File_Mxf::LensUnitAcquisitionMetadata_MacroSetting()
 {
     //Parsing
     int8u Value;
@@ -11798,8 +12297,7 @@ void File_Mxf::LensUnitMetadata_MacroSetting()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::LensUnitMetadata_LensZoom35mmStillCameraEquivalent()
+void File_Mxf::LensUnitAcquisitionMetadata_LensZoom35mmStillCameraEquivalent()
 {
     //Parsing
     float32 Value;
@@ -11812,8 +12310,7 @@ void File_Mxf::LensUnitMetadata_LensZoom35mmStillCameraEquivalent()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::LensUnitMetadata_LensZoomActualFocalLength()
+void File_Mxf::LensUnitAcquisitionMetadata_LensZoomActualFocalLength()
 {
     //Parsing
     float32 Value;
@@ -11826,8 +12323,7 @@ void File_Mxf::LensUnitMetadata_LensZoomActualFocalLength()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::LensUnitMetadata_OpticalExtenderMagnification()
+void File_Mxf::LensUnitAcquisitionMetadata_OpticalExtenderMagnification()
 {
     //Parsing
     int16u Value;
@@ -11839,8 +12335,7 @@ void File_Mxf::LensUnitMetadata_OpticalExtenderMagnification()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::LensUnitMetadata_LensAttributes()
+void File_Mxf::LensUnitAcquisitionMetadata_LensAttributes()
 {
     //Parsing
     Ztring Value;
@@ -11852,8 +12347,7 @@ void File_Mxf::LensUnitMetadata_LensAttributes()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::LensUnitMetadata_IrisTNumber()
+void File_Mxf::LensUnitAcquisitionMetadata_IrisTNumber()
 {
     //Parsing
     int16u Value;
@@ -11865,8 +12359,7 @@ void File_Mxf::LensUnitMetadata_IrisTNumber()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::LensUnitMetadata_IrisRingPosition()
+void File_Mxf::LensUnitAcquisitionMetadata_IrisRingPosition()
 {
     //Parsing
     int16u Value;
@@ -11878,8 +12371,7 @@ void File_Mxf::LensUnitMetadata_IrisRingPosition()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::LensUnitMetadata_FocusRingPosition()
+void File_Mxf::LensUnitAcquisitionMetadata_FocusRingPosition()
 {
     //Parsing
     int16u Value;
@@ -11891,8 +12383,7 @@ void File_Mxf::LensUnitMetadata_FocusRingPosition()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::LensUnitMetadata_ZoomRingPosition()
+void File_Mxf::LensUnitAcquisitionMetadata_ZoomRingPosition()
 {
     //Parsing
     int16u Value;
@@ -11904,64 +12395,83 @@ void File_Mxf::LensUnitMetadata_ZoomRingPosition()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_CaptureGammaEquation()
+void File_Mxf::CameraUnitAcquisitionMetadata_TransferCharacteristic()
+{
+    //Parsing
+    int128u Data;
+    Get_UL(Data,                                                "Data", NULL); Element_Info1(Mxf_TransferCharacteristic(Data));
+
+    FILLING_BEGIN();
+        AcquisitionMetadata_Add(Code2, Mxf_TransferCharacteristic(Data));
+    FILLING_END();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::CameraUnitAcquisitionMetadata_ColorPrimaries()
+{
+    //Parsing
+    int128u Data;
+    Get_UL(Data,                                                "Data", Mxf_ColorPrimaries); Element_Info1(Mxf_ColorPrimaries(Data));
+
+    FILLING_BEGIN();
+        AcquisitionMetadata_Add(Code2, Mxf_ColorPrimaries(Data));
+    FILLING_END();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::CameraUnitAcquisitionMetadata_CodingEquations()
+{
+    //Parsing
+    int128u Data;
+    Get_UL(Data,                                                "Data", Mxf_CodingEquations); Element_Info1(Mxf_CodingEquations(Data));
+
+    FILLING_BEGIN();
+        AcquisitionMetadata_Add(Code2, Mxf_CodingEquations(Data));
+    FILLING_END();
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::CameraUnitAcquisitionMetadata_AutoExposureMode()
 {
     //Parsing
     int128u Value;
     Get_UUID(Value,                                             "Value");
 
     FILLING_BEGIN();
-        AcquisitionMetadata_Add(Code2, Mxf_CameraUnitMetadata_CaptureGammaEquation(Value));
+        AcquisitionMetadata_Add(Code2, Mxf_CameraUnitAcquisitionMetadata_AutoExposureMode(Value));
     FILLING_END();
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_AutoExposureMode()
-{
-    //Parsing
-    int128u Value;
-    Get_UUID(Value,                                             "Value");
-
-    FILLING_BEGIN();
-        AcquisitionMetadata_Add(Code2, Mxf_CameraUnitMetadata_AutoExposureMode(Value));
-    FILLING_END();
-}
-
-//---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_AutoFocusSensingAreaSetting()
+void File_Mxf::CameraUnitAcquisitionMetadata_AutoFocusSensingAreaSetting()
 {
     //Parsing
     int8u Value;
     Get_B1(Value,                                               "Value");
 
     FILLING_BEGIN();
-        AcquisitionMetadata_Add(Code2, Mxf_CameraUnitMetadata_AutoFocusSensingAreaSetting(Value));
+        AcquisitionMetadata_Add(Code2, Mxf_CameraUnitAcquisitionMetadata_AutoFocusSensingAreaSetting(Value));
     FILLING_END();
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_ColorCorrectionFilterWheelSetting()
+void File_Mxf::CameraUnitAcquisitionMetadata_ColorCorrectionFilterWheelSetting()
 {
     //Parsing
     int8u Value;
     Get_B1(Value,                                               "Value");
 
     FILLING_BEGIN();
-        AcquisitionMetadata_Add(Code2, Mxf_CameraUnitMetadata_ColorCorrectionFilterWheelSetting(Value));
+        AcquisitionMetadata_Add(Code2, Mxf_CameraUnitAcquisitionMetadata_ColorCorrectionFilterWheelSetting(Value));
     FILLING_END();
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_NeutralDensityFilterWheelSetting()
+void File_Mxf::CameraUnitAcquisitionMetadata_NeutralDensityFilterWheelSetting()
 {
     //Parsing
     int16u Value;
-    Get_B2(Value,                                               "Value"); Element_Info1(Mxf_CameraUnitMetadata_NeutralDensityFilterWheelSetting(Value).c_str());
+    Get_B2(Value,                                               "Value"); Element_Info1(Mxf_CameraUnitAcquisitionMetadata_NeutralDensityFilterWheelSetting(Value).c_str());
 
     FILLING_BEGIN();
         if (Value==1)
@@ -11972,8 +12482,7 @@ void File_Mxf::CameraUnitMetadata_NeutralDensityFilterWheelSetting()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_ImageSensorDimensionEffectiveWidth()
+void File_Mxf::CameraUnitAcquisitionMetadata_ImageSensorDimensionEffectiveWidth()
 {
     //Parsing
     int16u Value;
@@ -11985,8 +12494,7 @@ void File_Mxf::CameraUnitMetadata_ImageSensorDimensionEffectiveWidth()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_ImageSensorDimensionEffectiveHeight()
+void File_Mxf::CameraUnitAcquisitionMetadata_ImageSensorDimensionEffectiveHeight()
 {
     //Parsing
     int16u Value;
@@ -11998,8 +12506,7 @@ void File_Mxf::CameraUnitMetadata_ImageSensorDimensionEffectiveHeight()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_CaptureFrameRate()
+void File_Mxf::CameraUnitAcquisitionMetadata_CaptureFrameRate()
 {
     //Parsing
     float64 Value;
@@ -12011,21 +12518,19 @@ void File_Mxf::CameraUnitMetadata_CaptureFrameRate()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_ImageSensorReadoutMode()
+void File_Mxf::CameraUnitAcquisitionMetadata_ImageSensorReadoutMode()
 {
     //Parsing
     int8u Value;
     Get_B1(Value,                                               "Value");
 
     FILLING_BEGIN();
-        AcquisitionMetadata_Add(Code2, Mxf_CameraUnitMetadata_ImageSensorReadoutMode(Value));
+        AcquisitionMetadata_Add(Code2, Mxf_CameraUnitAcquisitionMetadata_ImageSensorReadoutMode(Value));
     FILLING_END();
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_ShutterSpeed_Angle()
+void File_Mxf::CameraUnitAcquisitionMetadata_ShutterSpeed_Angle()
 {
     //Parsing
     int32u Value;
@@ -12037,8 +12542,7 @@ void File_Mxf::CameraUnitMetadata_ShutterSpeed_Angle()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_ShutterSpeed_Time()
+void File_Mxf::CameraUnitAcquisitionMetadata_ShutterSpeed_Time()
 {
     //Parsing
     int32u Num, Den;
@@ -12051,8 +12555,7 @@ void File_Mxf::CameraUnitMetadata_ShutterSpeed_Time()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_CameraMasterGainAdjustment()
+void File_Mxf::CameraUnitAcquisitionMetadata_CameraMasterGainAdjustment()
 {
     //Parsing
     int16u Value;
@@ -12064,8 +12567,7 @@ void File_Mxf::CameraUnitMetadata_CameraMasterGainAdjustment()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_ISOSensitivity()
+void File_Mxf::CameraUnitAcquisitionMetadata_ISOSensitivity()
 {
     //Parsing
     int16u Value;
@@ -12077,8 +12579,7 @@ void File_Mxf::CameraUnitMetadata_ISOSensitivity()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_ElectricalExtenderMagnification()
+void File_Mxf::CameraUnitAcquisitionMetadata_ElectricalExtenderMagnification()
 {
     //Parsing
     int16u Value;
@@ -12090,21 +12591,19 @@ void File_Mxf::CameraUnitMetadata_ElectricalExtenderMagnification()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_AutoWhiteBalanceMode()
+void File_Mxf::CameraUnitAcquisitionMetadata_AutoWhiteBalanceMode()
 {
     //Parsing
     int8u Value;
     Get_B1(Value,                                               "Value");
 
     FILLING_BEGIN();
-        AcquisitionMetadata_Add(Code2, Mxf_CameraUnitMetadata_AutoWhiteBalanceMode(Value));
+        AcquisitionMetadata_Add(Code2, Mxf_CameraUnitAcquisitionMetadata_AutoWhiteBalanceMode(Value));
     FILLING_END();
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_WhiteBalance()
+void File_Mxf::CameraUnitAcquisitionMetadata_WhiteBalance()
 {
     //Parsing
     int16u Value;
@@ -12116,8 +12615,7 @@ void File_Mxf::CameraUnitMetadata_WhiteBalance()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_CameraMasterBlackLevel()
+void File_Mxf::CameraUnitAcquisitionMetadata_CameraMasterBlackLevel()
 {
     //Parsing
     int16u Value;
@@ -12129,8 +12627,7 @@ void File_Mxf::CameraUnitMetadata_CameraMasterBlackLevel()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_CameraKneePoint()
+void File_Mxf::CameraUnitAcquisitionMetadata_CameraKneePoint()
 {
     //Parsing
     int16u Value;
@@ -12142,8 +12639,7 @@ void File_Mxf::CameraUnitMetadata_CameraKneePoint()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_CameraKneeSlope()
+void File_Mxf::CameraUnitAcquisitionMetadata_CameraKneeSlope()
 {
     //Parsing
     float64 Value;
@@ -12155,8 +12651,7 @@ void File_Mxf::CameraUnitMetadata_CameraKneeSlope()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_CameraLuminanceDynamicRange()
+void File_Mxf::CameraUnitAcquisitionMetadata_CameraLuminanceDynamicRange()
 {
     //Parsing
     int16u Value;
@@ -12168,8 +12663,7 @@ void File_Mxf::CameraUnitMetadata_CameraLuminanceDynamicRange()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_CameraSettingFileURI()
+void File_Mxf::CameraUnitAcquisitionMetadata_CameraSettingFileURI()
 {
     //Parsing
     Ztring Value;
@@ -12181,8 +12675,7 @@ void File_Mxf::CameraUnitMetadata_CameraSettingFileURI()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_CameraAttributes()
+void File_Mxf::CameraUnitAcquisitionMetadata_CameraAttributes()
 {
     //Parsing
     Ztring Value;
@@ -12194,8 +12687,7 @@ void File_Mxf::CameraUnitMetadata_CameraAttributes()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_ExposureIndexofPhotoMeter()
+void File_Mxf::CameraUnitAcquisitionMetadata_ExposureIndexofPhotoMeter()
 {
     //Parsing
     int16u Value;
@@ -12207,28 +12699,23 @@ void File_Mxf::CameraUnitMetadata_ExposureIndexofPhotoMeter()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_GammaForCDL()
+void File_Mxf::CameraUnitAcquisitionMetadata_GammaForCDL()
 {
     //Parsing
     int8u Value;
     Get_B1(Value,                                               "Value");
 
     FILLING_BEGIN();
-        AcquisitionMetadata_Add(Code2, Mxf_CameraUnitMetadata_GammaforCDL(Value));
+        AcquisitionMetadata_Add(Code2, Mxf_CameraUnitAcquisitionMetadata_GammaforCDL(Value));
     FILLING_END();
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_ASC_CDL_V12()
+void File_Mxf::CameraUnitAcquisitionMetadata_ASC_CDL_V12()
 {
     //Parsing
-    //Vector
-    int32u Count, Length;
-    Get_B4 (Count,                                              "Count");
-    Get_B4 (Length,                                             "Length");
-    if (Count!=10 || Length!=2)
+    VECTOR(2);
+    if (Count!=10)
     {
         Skip_XX (Length2-8,                                     "Data");
         return;
@@ -12252,15 +12739,12 @@ void File_Mxf::CameraUnitMetadata_ASC_CDL_V12()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::CameraUnitMetadata_ColorMatrix()
+void File_Mxf::CameraUnitAcquisitionMetadata_ColorMatrix()
 {
     //Parsing
-    //Vector
-    int32u Count, Length;
-    Get_B4 (Count,                                              "Count");
-    Get_B4 (Length,                                             "Length");
-    if (Count!=9 || Length!=8)
+    VECTOR(8);
+    for (int32u i=0; i<Count; i++)
+    if (Count!=9)
     {
         Skip_XX (Length2-8,                                     "Data");
         return;
@@ -12294,7 +12778,6 @@ void File_Mxf::CameraUnitMetadata_ColorMatrix()
 }
 
 //---------------------------------------------------------------------------
-//
 void File_Mxf::UserDefinedAcquisitionMetadata_UdamSetIdentifier()
 {
     //Parsing
@@ -12309,7 +12792,6 @@ void File_Mxf::UserDefinedAcquisitionMetadata_UdamSetIdentifier()
 }
 
 //---------------------------------------------------------------------------
-//
 void File_Mxf::UserDefinedAcquisitionMetadata_Sony_E101()
 {
     //Parsing
@@ -12323,7 +12805,6 @@ void File_Mxf::UserDefinedAcquisitionMetadata_Sony_E101()
 }
 
 //---------------------------------------------------------------------------
-//
 void File_Mxf::UserDefinedAcquisitionMetadata_Sony_E102()
 {
     //Parsing
@@ -12337,7 +12818,6 @@ void File_Mxf::UserDefinedAcquisitionMetadata_Sony_E102()
 }
 
 //---------------------------------------------------------------------------
-//
 void File_Mxf::UserDefinedAcquisitionMetadata_Sony_E103()
 {
     //Parsing
@@ -12350,7 +12830,6 @@ void File_Mxf::UserDefinedAcquisitionMetadata_Sony_E103()
 }
 
 //---------------------------------------------------------------------------
-//
 void File_Mxf::UserDefinedAcquisitionMetadata_Sony_E104()
 {
     //Parsing
@@ -12363,7 +12842,6 @@ void File_Mxf::UserDefinedAcquisitionMetadata_Sony_E104()
 }
 
 //---------------------------------------------------------------------------
-//
 void File_Mxf::UserDefinedAcquisitionMetadata_Sony_E105()
 {
     //Parsing
@@ -12376,7 +12854,6 @@ void File_Mxf::UserDefinedAcquisitionMetadata_Sony_E105()
 }
 
 //---------------------------------------------------------------------------
-//
 void File_Mxf::UserDefinedAcquisitionMetadata_Sony_E106()
 {
     //Parsing
@@ -12389,7 +12866,6 @@ void File_Mxf::UserDefinedAcquisitionMetadata_Sony_E106()
 }
 
 //---------------------------------------------------------------------------
-//
 void File_Mxf::UserDefinedAcquisitionMetadata_Sony_E107()
 {
     //Parsing
@@ -12402,7 +12878,6 @@ void File_Mxf::UserDefinedAcquisitionMetadata_Sony_E107()
 }
 
 //---------------------------------------------------------------------------
-//
 void File_Mxf::UserDefinedAcquisitionMetadata_Sony_E109()
 {
     //Parsing
@@ -12415,7 +12890,6 @@ void File_Mxf::UserDefinedAcquisitionMetadata_Sony_E109()
 }
 
 //---------------------------------------------------------------------------
-//
 void File_Mxf::UserDefinedAcquisitionMetadata_Sony_E10B()
 {
     //Parsing
@@ -12432,7 +12906,6 @@ void File_Mxf::UserDefinedAcquisitionMetadata_Sony_E10B()
 }
 
 //---------------------------------------------------------------------------
-//
 void File_Mxf::UserDefinedAcquisitionMetadata_Sony_E201()
 {
     if (AcquisitionMetadata_Sony_E201_Lists.empty())
@@ -12676,7 +13149,6 @@ void File_Mxf::UserDefinedAcquisitionMetadata_Sony_E201()
 }
 
 //---------------------------------------------------------------------------
-//
 void File_Mxf::UserDefinedAcquisitionMetadata_Sony_E202()
 {
     //Parsing
@@ -12689,7 +13161,6 @@ void File_Mxf::UserDefinedAcquisitionMetadata_Sony_E202()
 }
 
 //---------------------------------------------------------------------------
-//
 void File_Mxf::UserDefinedAcquisitionMetadata_Sony_E203()
 {
     //Parsing
@@ -12707,7 +13178,7 @@ void File_Mxf::UserDefinedAcquisitionMetadata_Sony_E203()
 
 //---------------------------------------------------------------------------
 // AAF
-void File_Mxf::AS11_Core_SeriesTitle()
+void File_Mxf::AS_11_Series_Title()
 {
     //Parsing
     Ztring Value;
@@ -12720,7 +13191,7 @@ void File_Mxf::AS11_Core_SeriesTitle()
 
 //---------------------------------------------------------------------------
 // AAF
-void File_Mxf::AS11_Core_ProgrammeTitle()
+void File_Mxf::AS_11_Programme_Title()
 {
     //Parsing
     Ztring Value;
@@ -12733,7 +13204,7 @@ void File_Mxf::AS11_Core_ProgrammeTitle()
 
 //---------------------------------------------------------------------------
 // AAF
-void File_Mxf::AS11_Core_EpisodeTitleNumber()
+void File_Mxf::AS_11_Episode_Title_Number()
 {
     //Parsing
     Ztring Value;
@@ -12746,7 +13217,7 @@ void File_Mxf::AS11_Core_EpisodeTitleNumber()
 
 //---------------------------------------------------------------------------
 // AAF
-void File_Mxf::AS11_Core_ShimName()
+void File_Mxf::AS_11_Shim_Name()
 {
     //Parsing
     Ztring Value;
@@ -12759,7 +13230,7 @@ void File_Mxf::AS11_Core_ShimName()
 
 //---------------------------------------------------------------------------
 // AAF
-void File_Mxf::AS11_Core_AudioTrackLayout()
+void File_Mxf::AS_11_Audio_Track_Layout()
 {
     //Parsing
     int8u Value;
@@ -12772,7 +13243,7 @@ void File_Mxf::AS11_Core_AudioTrackLayout()
 
 //---------------------------------------------------------------------------
 // AAF
-void File_Mxf::AS11_Core_PrimaryAudioLanguage()
+void File_Mxf::AS_11_Primary_Audio_Language()
 {
     //Parsing
     Ztring Value;
@@ -12785,7 +13256,7 @@ void File_Mxf::AS11_Core_PrimaryAudioLanguage()
 
 //---------------------------------------------------------------------------
 // AAF
-void File_Mxf::AS11_Core_ClosedCaptionsPresent()
+void File_Mxf::AS_11_Closed_Captions_Present()
 {
     int8u Value;
     Get_B1 (Value,                                              "Value"); Element_Info1(Value?"Yes":"No");
@@ -12797,7 +13268,7 @@ void File_Mxf::AS11_Core_ClosedCaptionsPresent()
 
 //---------------------------------------------------------------------------
 // AAF
-void File_Mxf::AS11_Core_ClosedCaptionsType()
+void File_Mxf::AS_11_Closed_Captions_Type()
 {
     //Parsing
     int8u Value;
@@ -12810,7 +13281,7 @@ void File_Mxf::AS11_Core_ClosedCaptionsType()
 
 //---------------------------------------------------------------------------
 // AAF
-void File_Mxf::AS11_Core_ClosedCaptionsLanguage()
+void File_Mxf::AS_11_Caption_Language()
 {
     //Parsing
     Ztring Value;
@@ -12823,7 +13294,7 @@ void File_Mxf::AS11_Core_ClosedCaptionsLanguage()
 
 //---------------------------------------------------------------------------
 // AAF
-void File_Mxf::AS11_Core_ShimVersion()
+void File_Mxf::AS_11_Shim_Version()
 {
     //Parsing
     int8u Major, Minor;
@@ -12838,7 +13309,7 @@ void File_Mxf::AS11_Core_ShimVersion()
 
 //---------------------------------------------------------------------------
 // AAF
-void File_Mxf::AS11_Segment_PartNumber()
+void File_Mxf::AS_11_Part_Number()
 {
     //Parsing
     int16u Value;
@@ -12851,7 +13322,7 @@ void File_Mxf::AS11_Segment_PartNumber()
 
 //---------------------------------------------------------------------------
 // AAF
-void File_Mxf::AS11_Segment_PartTotal()
+void File_Mxf::AS_11_Part_Total()
 {
     //Parsing
     int16u Value;
@@ -12864,7 +13335,7 @@ void File_Mxf::AS11_Segment_PartTotal()
 
 //---------------------------------------------------------------------------
 // DPP .010101010100
-void File_Mxf::AS11_UKDPP_ProductionNumber()
+void File_Mxf::UKDPP_Production_Number()
 {
     //Parsing
     Ztring Value;
@@ -12877,7 +13348,7 @@ void File_Mxf::AS11_UKDPP_ProductionNumber()
 
 //---------------------------------------------------------------------------
 // DPP .010101010200
-void File_Mxf::AS11_UKDPP_Synopsis()
+void File_Mxf::UKDPP_Synopsis()
 {
     //Parsing
     Ztring Value;
@@ -12890,7 +13361,7 @@ void File_Mxf::AS11_UKDPP_Synopsis()
 
 //---------------------------------------------------------------------------
 // DPP .010101010300
-void File_Mxf::AS11_UKDPP_Originator()
+void File_Mxf::UKDPP_Originator()
 {
     //Parsing
     Ztring Value;
@@ -12903,7 +13374,7 @@ void File_Mxf::AS11_UKDPP_Originator()
 
 //---------------------------------------------------------------------------
 // DPP .010101010400
-void File_Mxf::AS11_UKDPP_CopyrightYear()
+void File_Mxf::UKDPP_Copyright_Year()
 {
     //Parsing
     int16u Value;
@@ -12916,7 +13387,7 @@ void File_Mxf::AS11_UKDPP_CopyrightYear()
 
 //---------------------------------------------------------------------------
 // DPP .010101010500
-void File_Mxf::AS11_UKDPP_OtherIdentifier()
+void File_Mxf::UKDPP_Other_Identifier()
 {
     //Parsing
     Ztring Value;
@@ -12929,7 +13400,7 @@ void File_Mxf::AS11_UKDPP_OtherIdentifier()
 
 //---------------------------------------------------------------------------
 // DPP .010101010600
-void File_Mxf::AS11_UKDPP_OtherIdentifierType()
+void File_Mxf::UKDPP_Other_Identifier_Type()
 {
     //Parsing
     Ztring Value;
@@ -12942,7 +13413,7 @@ void File_Mxf::AS11_UKDPP_OtherIdentifierType()
 
 //---------------------------------------------------------------------------
 // DPP .010101010700
-void File_Mxf::AS11_UKDPP_Genre()
+void File_Mxf::UKDPP_Genre()
 {
     //Parsing
     Ztring Value;
@@ -12955,7 +13426,7 @@ void File_Mxf::AS11_UKDPP_Genre()
 
 //---------------------------------------------------------------------------
 // DPP .010101010800
-void File_Mxf::AS11_UKDPP_Distributor()
+void File_Mxf::UKDPP_Distributor()
 {
     //Parsing
     Ztring Value;
@@ -12968,7 +13439,7 @@ void File_Mxf::AS11_UKDPP_Distributor()
 
 //---------------------------------------------------------------------------
 // DPP .010101010900
-void File_Mxf::AS11_UKDPP_PictureRatio()
+void File_Mxf::UKDPP_Picture_Ratio()
 {
     //Parsing
     int32u Numerator, Denominator;
@@ -12984,7 +13455,7 @@ void File_Mxf::AS11_UKDPP_PictureRatio()
 
 //---------------------------------------------------------------------------
 // DPP .010101010A00
-void File_Mxf::AS11_UKDPP_3D()
+void File_Mxf::UKDPP_3D()
 {
     int8u Value;
     Get_B1 (Value,                                              "Value"); Element_Info1(Value?"Yes":"No");
@@ -12996,7 +13467,7 @@ void File_Mxf::AS11_UKDPP_3D()
 
 //---------------------------------------------------------------------------
 // DPP .010101010B00
-void File_Mxf::AS11_UKDPP_3DType()
+void File_Mxf::UKDPP_3D_Type()
 {
     //Parsing
     int8u Value;
@@ -13010,7 +13481,7 @@ void File_Mxf::AS11_UKDPP_3DType()
 
 //---------------------------------------------------------------------------
 // DPP .010101010C00
-void File_Mxf::AS11_UKDPP_ProductPlacement()
+void File_Mxf::UKDPP_Product_Placement()
 {
     int8u Value;
     Get_B1 (Value,                                              "Value"); Element_Info1(Value?"Yes":"No");
@@ -13022,7 +13493,7 @@ void File_Mxf::AS11_UKDPP_ProductPlacement()
 
 //---------------------------------------------------------------------------
 // DPP .010101010D00
-void File_Mxf::AS11_UKDPP_FpaPass()
+void File_Mxf::UKDPP_PSE_Pass()
 {
     //Parsing
     int8u Value;
@@ -13035,7 +13506,7 @@ void File_Mxf::AS11_UKDPP_FpaPass()
 
 //---------------------------------------------------------------------------
 // DPP .010101010E00
-void File_Mxf::AS11_UKDPP_FpaManufacturer()
+void File_Mxf::UKDPP_PSE_Manufacturer()
 {
     //Parsing
     Ztring Value;
@@ -13048,7 +13519,7 @@ void File_Mxf::AS11_UKDPP_FpaManufacturer()
 
 //---------------------------------------------------------------------------
 // DPP .010101010F00
-void File_Mxf::AS11_UKDPP_FpaVersion()
+void File_Mxf::UKDPP_PSE_Version()
 {
     //Parsing
     Ztring Value;
@@ -13061,7 +13532,7 @@ void File_Mxf::AS11_UKDPP_FpaVersion()
 
 //---------------------------------------------------------------------------
 // DPP .010101011000
-void File_Mxf::AS11_UKDPP_VideoComments()
+void File_Mxf::UKDPP_Video_Comments()
 {
     //Parsing
     Ztring Value;
@@ -13074,7 +13545,7 @@ void File_Mxf::AS11_UKDPP_VideoComments()
 
 //---------------------------------------------------------------------------
 // DPP .010101011100
-void File_Mxf::AS11_UKDPP_SecondaryAudioLanguage()
+void File_Mxf::UKDPP_Secondary_Audio_Language()
 {
     //Parsing
     Ztring Value;
@@ -13086,7 +13557,7 @@ void File_Mxf::AS11_UKDPP_SecondaryAudioLanguage()
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::AS11_UKDPP_TertiaryAudioLanguage()
+void File_Mxf::UKDPP_Tertiary_Audio_Language()
 {
     //Parsing
     Ztring Value;
@@ -13099,7 +13570,7 @@ void File_Mxf::AS11_UKDPP_TertiaryAudioLanguage()
 
 //---------------------------------------------------------------------------
 // DPP .010101011300
-void File_Mxf::AS11_UKDPP_AudioLoudnessStandard()
+void File_Mxf::UKDPP_Audio_Loudness_Standard()
 {
     //Parsing
     int8u Value;
@@ -13112,7 +13583,7 @@ void File_Mxf::AS11_UKDPP_AudioLoudnessStandard()
 
 //---------------------------------------------------------------------------
 // DPP .010101011400
-void File_Mxf::AS11_UKDPP_AudioComments()
+void File_Mxf::UKDPP_Audio_Comments()
 {
     //Parsing
     Ztring Value;
@@ -13125,7 +13596,7 @@ void File_Mxf::AS11_UKDPP_AudioComments()
 
 //---------------------------------------------------------------------------
 // DPP .010101011500
-void File_Mxf::AS11_UKDPP_LineUpStart()
+void File_Mxf::UKDPP_Line_Up_Start()
 {
     //Parsing
     int64u Value;
@@ -13138,7 +13609,7 @@ void File_Mxf::AS11_UKDPP_LineUpStart()
 
 //---------------------------------------------------------------------------
 // DPP .010101011600
-void File_Mxf::AS11_UKDPP_IdentClockStart()
+void File_Mxf::UKDPP_Ident_Clock_Start()
 {
     //Parsing
     int64u Value;
@@ -13151,7 +13622,7 @@ void File_Mxf::AS11_UKDPP_IdentClockStart()
 
 //---------------------------------------------------------------------------
 // DPP .010101011700
-void File_Mxf::AS11_UKDPP_TotalNumberOfParts()
+void File_Mxf::UKDPP_Total_Number_Of_Parts()
 {
     //Parsing
     int16u Value;
@@ -13164,7 +13635,7 @@ void File_Mxf::AS11_UKDPP_TotalNumberOfParts()
 
 //---------------------------------------------------------------------------
 // DPP .010101011800
-void File_Mxf::AS11_UKDPP_TotalProgrammeDuration()
+void File_Mxf::UKDPP_Total_Programme_Duration()
 {
     //Parsing
     int64u Value;
@@ -13177,7 +13648,7 @@ void File_Mxf::AS11_UKDPP_TotalProgrammeDuration()
 
 //---------------------------------------------------------------------------
 // DPP .010101011900
-void File_Mxf::AS11_UKDPP_AudioDescriptionPresent()
+void File_Mxf::UKDPP_Audio_Description_Present()
 {
     //Parsing
     int8u Value;
@@ -13190,7 +13661,7 @@ void File_Mxf::AS11_UKDPP_AudioDescriptionPresent()
 
 //---------------------------------------------------------------------------
 // DPP .010101011A00
-void File_Mxf::AS11_UKDPP_AudioDescriptionType()
+void File_Mxf::UKDPP_Audio_Description_Type()
 {
     //Parsing
     int8u Value;
@@ -13203,7 +13674,7 @@ void File_Mxf::AS11_UKDPP_AudioDescriptionType()
 
 //---------------------------------------------------------------------------
 // DPP .010101011B00
-void File_Mxf::AS11_UKDPP_OpenCaptionsPresent()
+void File_Mxf::UKDPP_Open_Captions_Present()
 {
     //Parsing
     int8u Value;
@@ -13216,7 +13687,7 @@ void File_Mxf::AS11_UKDPP_OpenCaptionsPresent()
 
 //---------------------------------------------------------------------------
 // DPP .010101011C00
-void File_Mxf::AS11_UKDPP_OpenCaptionsType()
+void File_Mxf::UKDPP_Open_Captions_Type()
 {
     //Parsing
     int8u Value;
@@ -13229,7 +13700,7 @@ void File_Mxf::AS11_UKDPP_OpenCaptionsType()
 
 //---------------------------------------------------------------------------
 // DPP .010101011D00
-void File_Mxf::AS11_UKDPP_OpenCaptionsLanguage()
+void File_Mxf::UKDPP_Open_Captions_Language()
 {
     //Parsing
     Ztring Value;
@@ -13242,7 +13713,7 @@ void File_Mxf::AS11_UKDPP_OpenCaptionsLanguage()
 
 //---------------------------------------------------------------------------
 // DPP .010101011E00
-void File_Mxf::AS11_UKDPP_SigningPresent()
+void File_Mxf::UKDPP_Signing_Present()
 {
     //Parsing
     int8u Value;
@@ -13255,7 +13726,7 @@ void File_Mxf::AS11_UKDPP_SigningPresent()
 
 //---------------------------------------------------------------------------
 // DPP .010101011F00
-void File_Mxf::AS11_UKDPP_SignLanguage()
+void File_Mxf::UKDPP_Sign_Language()
 {
     //Parsing
     int8u Value;
@@ -13268,7 +13739,7 @@ void File_Mxf::AS11_UKDPP_SignLanguage()
 
 //---------------------------------------------------------------------------
 // DPP .010101012000
-void File_Mxf::AS11_UKDPP_CompletionDate()
+void File_Mxf::UKDPP_Completion_Date()
 {
     //Parsing
     int64u Value;
@@ -13281,7 +13752,7 @@ void File_Mxf::AS11_UKDPP_CompletionDate()
 
 //---------------------------------------------------------------------------
 // DPP .010101012100
-void File_Mxf::AS11_UKDPP_TextlessElementsExist()
+void File_Mxf::UKDPP_Textless_Elements_Exist()
 {
     //Parsing
     int8u Value;
@@ -13294,7 +13765,7 @@ void File_Mxf::AS11_UKDPP_TextlessElementsExist()
 
 //---------------------------------------------------------------------------
 // DPP .010101012200
-void File_Mxf::AS11_UKDPP_ProgrammeHasText()
+void File_Mxf::UKDPP_Programme_Has_Text()
 {
     //Parsing
     int8u Value;
@@ -13307,7 +13778,7 @@ void File_Mxf::AS11_UKDPP_ProgrammeHasText()
 
 //---------------------------------------------------------------------------
 // DPP .010101012300
-void File_Mxf::AS11_UKDPP_ProgrammeTextLanguage()
+void File_Mxf::UKDPP_Programme_Text_Language()
 {
     //Parsing
     Ztring Value;
@@ -13320,7 +13791,7 @@ void File_Mxf::AS11_UKDPP_ProgrammeTextLanguage()
 
 //---------------------------------------------------------------------------
 // DPP .010101012400
-void File_Mxf::AS11_UKDPP_ContactEmail()
+void File_Mxf::UKDPP_Contact_Email()
 {
     //Parsing
     Ztring Value;
@@ -13333,7 +13804,7 @@ void File_Mxf::AS11_UKDPP_ContactEmail()
 
 //---------------------------------------------------------------------------
 // DPP .010101012500
-void File_Mxf::AS11_UKDPP_ContactTelephoneNumber()
+void File_Mxf::UKDPP_Contact_Telephone_Number()
 {
     //Parsing
     Ztring Value;
@@ -13343,84 +13814,33 @@ void File_Mxf::AS11_UKDPP_ContactTelephoneNumber()
         AS11s[InstanceUID].ContactTelephoneNumber=Value;
     FILLING_END();
 }
-
 //---------------------------------------------------------------------------
-// 0x8001
-void File_Mxf::Omneon_010201010100_8001()
+void File_Mxf::DolbyNamespaceURI()
 {
     //Parsing
-    if (Vector(16)==(int32u)-1)
-        return;
-    while (Element_Offset<Element_Size)
-    {
-        Skip_UUID(                                              "UUID Omneon_010201020100");
+    Ztring Data;
+    Get_UTF8 (Length2, Data,                                    "Data"); Element_Info1(Data);
+
+    Descriptor_Fill("CodecID", Data);
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::PHDRDataDefinition()
+{
+    //Parsing
+    int128u Value;
+    Get_UUID (Value,                                            "Value"); Element_Info1(Ztring().From_UUID(Value));
+
+    Ztring CodecID;
+    CodecID.From_Number(Value.lo, 16);
+    if (CodecID.size()<16) {
+        CodecID.insert(0, 16-CodecID.size(), __T('0'));
     }
+    Descriptor_Fill("CodecID", CodecID);
 }
 
 //---------------------------------------------------------------------------
-// 0x8001
-void File_Mxf::Omneon_010201010100_8003()
-{
-    //Parsing
-    if (Vector(16)==(int32u)-1)
-        return;
-    while (Element_Offset<Element_Size)
-    {
-        Skip_UUID(                                              "UUID Omneon_010201020100");
-    }
-}
-
-//---------------------------------------------------------------------------
-// 0x8003
-void File_Mxf::Omneon_010201020100_8002()
-{
-    //Parsing
-    Skip_UTF16B(Length2,                                        "Content");
-}
-
-//---------------------------------------------------------------------------
-// 0x8003
-void File_Mxf::Omneon_010201020100_8003()
-{
-    //Parsing
-    Skip_UTF16B(Length2,                                        "Content");
-}
-
-//---------------------------------------------------------------------------
-// 0x8004
-void File_Mxf::Omneon_010201020100_8004()
-{
-    //Parsing
-    Skip_XX(Length2,                                            "Unknown");
-}
-
-//---------------------------------------------------------------------------
-// 0x8005
-void File_Mxf::Omneon_010201020100_8005()
-{
-    //Parsing
-    Skip_UTF16B(Length2,                                        "Content");
-}
-
-//---------------------------------------------------------------------------
-// 0x8006
-void File_Mxf::Omneon_010201020100_8006()
-{
-    //Parsing
-    Skip_UTF8(Length2,                                          "Content");
-}
-
-//---------------------------------------------------------------------------
-//
-void File_Mxf::Dolby_DataDefinition()
-{
-    //Parsing
-    Skip_UUID(                                                  "Value");
-}
-
-//---------------------------------------------------------------------------
-//
-void File_Mxf::Dolby_SourceTrackID()
+void File_Mxf::PHDRSourceTrackID()
 {
     //Parsing
     int32u Data;
@@ -13433,16 +13853,14 @@ void File_Mxf::Dolby_SourceTrackID()
 }
 
 //---------------------------------------------------------------------------
-//
-void File_Mxf::Dolby_SimplePayloadSID()
+void File_Mxf::PHDRSimplePayloadSID()
 {
     //Parsing
     int32u Data;
     Get_B4 (Data,                                               "Data"); Element_Info1(Data);
 
     FILLING_BEGIN();
-        if (ExtraMetadata_SID==(int32u)-1)
-            ExtraMetadata_SID=Data;
+         ExtraMetadata_SID.insert(Data);
     FILLING_END();
 }
 
@@ -13483,2662 +13901,292 @@ void File_Mxf::Info_Rational()
 //---------------------------------------------------------------------------
 void File_Mxf::Get_UL(int128u &Value, const char* Name, const char* (*Param) (int128u))
 {
-    #ifdef MEDIAINFO_MINIMIZE_SIZE
-        Skip_UUID();
-    #else
     //Parsing
     Element_Begin1(Name);
-    int64u Value_hi, Value_lo;
-    int8u Category, Registry, Structure;
-    Peek_B8(Value_hi);
-    Skip_B1(                                                    "Start (0x06)");
-    Skip_B1(                                                    "Length of the remaining key (0x0E)");
-    Skip_B1(                                                    "ISO, ORG (0x2B)");
-    Skip_B1(                                                    "SMPTE (0x34)");
-    Get_B1 (Category,                                           "Category"); Param_Info1(Mxf_Category(Category));
-    Get_B1 (Registry,                                           "Registry"); Param_Info1(Mxf_Registry(Category, Registry));
-    Get_B1 (Structure,                                          "Structure"); Param_Info1(Mxf_Structure(Category, Registry, Structure));
+    int128u V;
+    int64u Temp;
+    Peek_B8(Temp);
+    V.hi = Temp;
+    bool IsSmpte = (V.hi >> 32) == 0x060E2B34;
+    #if MEDIAINFO_TRACE
+    if (Trace_Activated && IsSmpte) {
+    Skip_B1(                                                    "Identifier"); Param_Info1("Object Identifier");
+    Skip_B1(                                                    "Length");
+    Skip_B1(                                                    "Hierarchy"); Param_Info1("ISO");
+    Skip_B1(                                                    "Organization"); Param_Info1("SMPTE");
+    Skip_B1(                                                    "Category"); Param_Info1(Mxf_Category((int8u)(V.hi >> 24)));
+    Skip_B1(                                                    "Registry"); Param_Info1(Mxf_Registry((int16u)(V.hi >> 16)));
+    Skip_B1(                                                    "Structure");
     Skip_B1(                                                    "Version");
-    Peek_B8(Value_lo);
-    switch (Category)
-    {
-        case 0x01 : //Item
-                    {
-                    //switch (Registry)
-                    //{
-                    //    default   :
-                                    {
-                                    switch (Structure)
-                                    {
-                                        case 0x01 : //Standard
-                                                    Param_Info1("Essence element"); //SMPTE 379M
-                                                    Info_UL_01xx01_Items();
-                                                    break;
-                                        default   :
-                                                    Skip_B8(    "Unknown");
-                                    }
-                                    }
-                    //}
-                    }
-                    break;
-        case 0x02 : //Group
-                    {
-                    //switch (Registry)
-                    //{
-                    //    default   :
-                                    {
-                                    switch (Structure)
-                                    {
-                                        case 0x01 :
-                                                    Info_UL_02xx01_Groups();
-                                                    break;
-                                        default   :
-                                                    Skip_B8(    "Unknown");
-                                    }
-                                    }
-                    //}
-                    }
-                    break;
-        case 0x04 : //Value
-                    {
-                    switch (Registry)
-                    {
-                        case 0x01 :
-                                    {
-                                    Param_Info1("Labels");
-                                    switch (Structure)
-                                    {
-                                        case 0x01 :
-                                                    Info_UL_040101_Values();
-                                                    break;
-                                        default   :
-                                                    Skip_B8(   "Unknown");
-                                    }
-                                    }
-                                    break;
-                        default   :
-                                    Skip_B8(                    "Unknown");
-                    }
-                    }
-                    break;
-        default   :
-                    Skip_B8(                                    "Unknown");
     }
+    else
+    #endif //MEDIAINFO_TRACE
+    if (Element_Size-Element_Offset>=8)
+        Element_Offset+=8;
+    else
+        Element_Offset=Element_Size;
+    Peek_B8(Temp);
+    V.lo = Temp;
+    #if MEDIAINFO_TRACE
+    if (Trace_Activated && IsSmpte) {
+        vector<string> Param_Extra;
+        int Offset = 0;
+        while (Offset < 64) {
+            if (!(V.lo & ((int64u)-1) >> Offset) && (((int32u)(V.hi)) >> 8) != 0x010201 && (V.lo >> 16) != (0x0D0102010000LL >> 16)) { // Essence, operation patterns may have trailing zero
+                break;
+            }
+            const char* FieldName = nullptr;
+            switch ((((int32u)(V.hi)) >> 8)) {
+            case 0x010201: // Dictionary Essence 01
+                switch (V.lo >> 24) {
+                case 0x0D01030101:
+                case 0x0D01030102:
+                    switch (Offset) {
+                    case 40: FieldName = "Mapping Kind"; break;
+                    }
+                    break;
+                case 0x0D01030104:
+                case 0x0D01030114:
+                    switch (Offset) {
+                    case 40: FieldName = "System Scheme Identifier"; break;
+                    case 48: FieldName = "Metadata or Control Element Identifier"; break;
+                    case 56: FieldName = "Reserved for use by Metadata Element"; break;
+                    }
+                    break;
+                case 0x0D01030105:
+                case 0x0D01030106:
+                case 0x0D01030107:
+                case 0x0D01030115:
+                case 0x0D01030116:
+                case 0x0D01030117:
+                case 0x0D01030118:
+                case 0x0E09060701:
+                    switch (Offset) {
+                    case 40: FieldName = "Essence Element Count"; break;
+                    case 48: FieldName = "Essence Element Type"; break;
+                    case 56: FieldName = "Essence Element Number"; break;
+                    }
+                    break;
+                case 0x0E09050201:
+                    switch (Offset) {
+                    case 40: FieldName = "Essence Element Number"; break;
+                    case 48: FieldName = "Essence Element Type"; break;
+                    case 56: FieldName = "Essence Element Count"; break;
+                    }
+                    break;
+                }
+                break;
+            case 0x040101: // Label Fixed 01
+                switch (V.lo >> 16) {
+                case 0x0D0103010201LL:
+                    switch (Offset) {
+                    case 48: FieldName = "MPEG Constraints"; break;
+                    case 56: FieldName = "Template Extension"; break;
+                    }
+                    break;
+                case 0x0D0103010202LL:
+                    switch (Offset) {
+                    case 48: FieldName = "Source Coding"; break;
+                    case 56: FieldName = "Wrapping Kind"; break;
+                    }
+                    break;
+                case 0x0D0103010203LL:
+                    switch (Offset) {
+                    case 48: FieldName = "Source Coding"; break;
+                    case 56: FieldName = "Template Extension"; break;
+                    }
+                    break;
+                case 0x0D0103010204LL:
+                case 0x0D0103010207LL:
+                case 0x0D0103010208LL:
+                case 0x0D0103010209LL:
+                case 0x0D010301020FLL:
+                case 0x0D010301021FLL:
+                case 0x0D0103010020LL:
+                    switch (Offset) {
+                    case 48: FieldName = "ISO 13818-1 stream_id bits 6..0"; break;
+                    case 56: FieldName = "Wrapping Kind"; break;
+                    }
+                    break;
+                case 0x0D0103010206LL:
+                case 0x0D010301020ALL:
+                case 0x0D010301020BLL: 
+                case 0x0D0103010210LL:
+                case 0x0D0103010211LL:
+                case 0x0D0103010214LL:
+                case 0x0D0103010215LL:
+                case 0x0D0103010216LL:
+                case 0x0D0103010217LL:
+                case 0x0D0103010218LL:
+                case 0x0D0103010219LL:
+                case 0x0D010301021ALL:
+                case 0x0D010301021BLL:
+                case 0x0D010301021CLL:
+                case 0x0D010301021DLL:
+                case 0x0D010301021ELL:
+                case 0x0D0103010221LL:
+                case 0x0D0103010222LL:
+                case 0x0D0103010223LL:
+                case 0x0D0103010225LL:
+                    switch (Offset) {
+                    case 48: FieldName = "Wrapping Kind"; break;
+                    }
+                    break;
+                case 0x0D0102010202LL:
+                    switch (Offset) {
+                    case 56: FieldName = "OP2a qualifiers"; break;
+                    }
+                    break;
+                }
+                break;
+            }
+            if (!FieldName) {
+                FieldName = Mxf_Param_Name((int32u)V.hi, Offset ? (V.lo & ((int64u)-1) << (64 - Offset)) : 0);
+            }
+            Skip_B1(FieldName);
+            Offset += 8;
+            const char* MoreInfo = nullptr;
+            switch ((((int32u)(V.hi)) >> 8)) {
+            case 0x010201: // Dictionary Essence 01
+                switch (V.lo >> 24) {
+                case 0x0D01030105:
+                case 0x0D01030106:
+                case 0x0D01030107:
+                case 0x0D01030115:
+                case 0x0D01030116:
+                case 0x0D01030117:
+                case 0x0D01030118:
+                case 0x0E09050201:
+                case 0x0E09060701:
+                    switch (Offset) {
+                    case 56: MoreInfo = Mxf_Param_Info((int32u)V.hi, V.lo & 0xFFFFFFFFFF00FF00); break;
+                    }
+                    break;
+                }
+                break;
+            }
+            if (!MoreInfo) {
+                MoreInfo = Mxf_Param_Info((int32u)V.hi, Offset ? (V.lo & ((int64u)-1) << (64 - Offset)) : 0);
+            }
+            if (MoreInfo) {
+                Param_Info1(MoreInfo);
+            }
 
+            // Special cases
+            switch ((((int32u)(V.hi)) >> 8)) {
+            case 0x040101: // Value Fixed 01
+                switch ((int32u)(V.lo >> 32)) {
+                case 0x0D010201: // MXF OP Structure Version 1
+                    switch (Offset) {
+                    case 56: {
+                        auto Code7 = (int8u)(V.lo >> 8);
+                        Skip_Flags(Code7, 3,                    "MultiTrack");
+                        Skip_Flags(Code7, 2,                    "NonStream");
+                        Skip_Flags(Code7, 1,                    "External");
+                    }
+                    }
+                    break;
+                }
+                switch (V.lo >> 24) {
+                case 0x0D01020102LL: // MXF OP Structure Version 1 MXF OP2
+                case 0x0D01020103LL: // MXF OP Structure Version 1 MXF OP3
+                    switch (Offset) {
+                    case 64: {
+                        auto Code8 = (int8u)V.lo;
+                        Skip_Flags(Code8, 4,                    "MayProcess");
+                    }
+                    }
+                    break;
+                }
+                switch (V.lo >> 16) {
+                case 0x0D0103010206LL:
+                case 0x0D010301020ALL:
+                case 0x0D010301020BLL:
+                case 0x0D0103010210LL:
+                case 0x0D0103010211LL:
+                case 0x0D0103010214LL:
+                case 0x0D0103010215LL:
+                case 0x0D0103010216LL:
+                case 0x0D0103010217LL:
+                case 0x0D0103010218LL:
+                case 0x0D0103010219LL:
+                case 0x0D010301021ALL:
+                case 0x0D010301021BLL:
+                case 0x0D010301021CLL:
+                case 0x0D010301021DLL:
+                case 0x0D010301021ELL:
+                case 0x0D0103010221LL:
+                case 0x0D0103010222LL:
+                case 0x0D0103010223LL:
+                case 0x0D0103010225LL:
+                    switch (Offset) {
+                    case 56:
+                        Param_Info1(Mxf_EssenceContainer_Mapping(V.lo));
+                    }
+                    break;
+                case 0x0D0103010202LL:
+                case 0x0D0103010204LL:
+                case 0x0D0103010207LL:
+                case 0x0D0103010208LL:
+                case 0x0D0103010209LL:
+                case 0x0D010301020FLL:
+                case 0x0D010301021FLL:
+                case 0x0D0103010020LL:
+                    switch (Offset) {
+                    case 64:
+                        Param_Info1(Mxf_EssenceContainer_Mapping(V.lo));
+                    }
+                    break;
+                }
+                break;
+            }
+        }
 
-    Value.hi=Value_hi;
-    Value.lo=Value_lo;
-    Element_Info1C((Param), Param(Value));
+        static const char* Reserved = "Reserved";
+        switch (Offset) {
+        case  0: Skip_B8(                                       Reserved); break;
+        case  8: Skip_B7(                                       Reserved); break;
+        case 16: Skip_B6(                                       Reserved); break;
+        case 24: Skip_B5(                                       Reserved); break;
+        case 32: Skip_B4(                                       Reserved); break;
+        case 40: Skip_B3(                                       Reserved); break;
+        case 48: Skip_B2(                                       Reserved); break;
+        case 56: Skip_B1(                                       Reserved); break;
+        default: ;
+        }
+
+        const char* Temp = nullptr;
+        if (Param) {
+            Temp = Param(V);
+        }
+        if (!Temp) {
+            switch ((((int32u)(V.hi)) >> 8)) {
+            case 0x024301:
+                switch (V.lo >> 8) {
+                case 0x0D010301040102: // SDTI System Metadata Pack
+                    V.lo -= V.lo & 0xFF;
+                }
+            }
+            Temp = Mxf_Param_Info((int32u)V.hi, V.lo);
+        }
+        if (Temp) {
+            string Info(Temp);
+            for (const auto& Extra : Param_Extra) {
+                Info += ' ';
+                Info += Extra;
+            }
+            Element_Info1(Info);
+        }
+    }
+    else
+    #endif //MEDIAINFO_TRACE
+    if (Element_Size-Element_Offset>=8)
+        Element_Offset+=8;
+    else
+        Element_Offset=Element_Size;
     Element_End0();
-    #endif
+    Value=V;
 }
-
-//---------------------------------------------------------------------------
-#if MEDIAINFO_TRACE
-void File_Mxf::Info_UL_01xx01_Items()
-{
-    Info_B1(Code1,                                              "Item Designator");
-    switch (Code1)
-    {
-        case 0x01 :
-            {
-            Param_Info1("Identifiers and locators");
-            Info_B1(Code2,                                      "Code (2)");
-            switch (Code2)
-            {
-                case 0x01 :
-                    {
-                    Param_Info1("GUID");
-                    Info_B1(Code3,                              "Code (3)");
-                    switch (Code3)
-                    {
-                        case 0x0D :
-                            {
-                            Param_Info1("UMID Mixed");
-                            Info_B1(Code4,                      "Code (4)");
-                            Info_B1(Code5,                      "Code (5)");
-                            Info_B1(Code6,                      "Code (6)");
-                            Info_B1(Code7,                      "Code (7)");
-                            Info_B1(Code8,                      "Code (8)");
-                            }
-                            break;
-                        default   :
-                            Skip_B5(                            "Unknown");
-                    }
-                    }
-                    break;
-                case 0x03 :
-                    {
-                    Param_Info1("Locally Unique Identifiers");
-                    Info_B1(Code3,                              "Code (3)");
-                    switch (Code3)
-                    {
-                        case 0x06 :
-                            {
-                            Param_Info1("Metadata Identifiers");
-                            Info_B1(Code4,                      "Code (4)");
-                            switch (Code4)
-                            {
-                                case 0x01 :
-                                    {
-                                    Param_Info1("Item Designator ID");
-                                    Info_B1(Code5,              "Code (5)");
-                                    //switch (Code5)
-                                    //{
-                                    //   default   :
-                                            Skip_B3(            "Unknown");
-                                    //}
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        case 0x07 :
-                            {
-                            Param_Info1("?");
-                            Info_B1(Code4,                      "Code (4)");
-                            switch (Code4)
-                            {
-                                case 0x01 :
-                                    {
-                                    Param_Info1("?");
-                                    Info_B1(Code5,              "Code (5)");
-                                    switch (Code5)
-                                    {
-                                        case 0x01 :
-                                            {
-                                            Param_Info1("MCA Label Dictionary ID");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x02 :
-                                            {
-                                            Param_Info1("MCA Tag Symbol");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x03 :
-                                            {
-                                            Param_Info1("MCA Tag Name");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x04 :
-                                            {
-                                            Param_Info1("Group Of Soundfield Groups Link ID");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x05 :
-                                            {
-                                            Param_Info1("MCA Link ID");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                       default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        default   :
-                            Skip_B5(                            "Unknown");
-                    }
-                    }
-                    break;
-                case 0x05 :
-                    {
-                    Param_Info1("Titles");
-                    Info_B1(Code3,                              "Code (3)");
-                    switch (Code3)
-                    {
-                        case 0x10 :
-                            {
-                            Param_Info1("MCA Title");
-                            Skip_B5(                            "Reserved");
-                            }
-                            break;
-                        case 0x11 :
-                            {
-                            Param_Info1("MCA Title Version");
-                            Skip_B5(                            "Reserved");
-                            }
-                            break;
-                        case 0x12 :
-                            {
-                            Param_Info1("MCA Title Sub-Version");
-                            Skip_B5(                            "Reserved");
-                            }
-                            break;
-                        case 0x13 :
-                            {
-                            Param_Info1("MCA Episode");
-                            Skip_B5(                            "Reserved");
-                            }
-                            break;
-                        default   :
-                            Skip_B5(                            "Unknown");
-                    }
-                    }
-                    break;
-                default   :
-                    Skip_B6(                                    "Unknown");
-            }
-            }
-            break;
-        case 0x03 :
-            {
-            Param_Info1("Interpretive");
-            Info_B1(Code2,                                      "Code (2)");
-            switch (Code2)
-            {
-                case 0x01 :
-                    {
-                    Param_Info1("Fundamental");
-                    Info_B1(Code3,                              "Code (3)");
-                    switch (Code3)
-                    {
-                        case 0x01 :
-                            {
-                            Param_Info1("Countries and Languages");
-                            Info_B1(Code4,                      "Code (4)");
-                            switch (Code4)
-                            {
-                                case 0x02 :
-                                    {
-                                    Param_Info1("Language Codes");
-                                    Info_B1(Code5,              "Code (5)");
-                                    switch (Code5)
-                                    {
-                                        case 0x03 :
-                                            {
-                                            Param_Info1("Spoken Language Codes");
-                                            Info_B1(Code6,              "Code (6)");
-                                            switch (Code6)
-                                            {
-                                                case 0x01 :
-                                                    {
-                                                    Param_Info1("Primary Spoken Language Code");
-                                                    Skip_B2(    "Reserved");
-                                                    }
-                                                    break;
-                                                case 0x02 :
-                                                    {
-                                                    Param_Info1("Secondary Spoken Language Code");
-                                                    Skip_B2(    "Reserved");
-                                                    }
-                                                    break;
-                                                case 0x03 :
-                                                    {
-                                                    Param_Info1("Primary Original Language Code");
-                                                    Skip_B2(    "Reserved");
-                                                    }
-                                                    break;
-                                                case 0x04 :
-                                                    {
-                                                    Param_Info1("Secondary Original Language Code");
-                                                    Skip_B2(    "Reserved");
-                                                    }
-                                                    break;
-                                                case 0x11 :
-                                                    {
-                                                    Param_Info1("Primary Extended Spoken Language Code");
-                                                    Skip_B2(    "Reserved");
-                                                    }
-                                                    break;
-                                                case 0x12 :
-                                                    {
-                                                    Param_Info1("Secondary Extended Spoken Language Code");
-                                                    Skip_B2(    "Reserved");
-                                                    }
-                                                    break;
-                                                case 0x13 :
-                                                    {
-                                                    Param_Info1("Original Extended Spoken Primary Language Code");
-                                                    Skip_B2(    "Reserved");
-                                                    }
-                                                    break;
-                                                case 0x14 :
-                                                    {
-                                                    Param_Info1("Secondary Original Extended Spoken Language Code");
-                                                    Skip_B2(    "Reserved");
-                                                    }
-                                                    break;
-                                                case 0x15 :
-                                                    {
-                                                    Param_Info1("RFC 5646 Audio Language Code");
-                                                    Skip_B2(    "Reserved");
-                                                    }
-                                                    break;
-                                               default   :
-                                                    Skip_B2(    "Unknown");
-                                            }
-                                            }
-                                            break;
-                                      default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        case 0x02 :
-                            {
-                            Param_Info1("Data Interpretations and Definitions");
-                            Info_B1(Code4,                      "Code (4)");
-                            switch (Code4)
-                            {
-                                case 0x0A :
-                                    {
-                                    Param_Info1("Name-Value Construct Interpretations");
-                                    Info_B1(Code5,              "Code (5)");
-                                    switch (Code5)
-                                    {
-                                        case 0x01 :
-                                        case 0x02 :
-                                            {
-                                            Param_Info1("");
-                                            Info_B1(Code6,              "Code (6)");
-                                            switch (Code6)
-                                            {
-                                                case 0x00 :
-                                                    {
-                                                    Param_Info1("ANSI");
-                                                    Info_B1(Code7,      "Reserved");
-                                                    Info_B1(Code8,      "Reserved");
-                                                    }
-                                                    break;
-                                                case 0x01 :
-                                                    {
-                                                    Param_Info1("UTF-16");
-                                                    Info_B1(Code7,      "Reserved");
-                                                    Info_B1(Code8,      "Reserved");
-                                                    }
-                                                    break;
-                                               default   :
-                                                    Skip_B2(            "Unknown");
-                                            }
-                                            }
-                                            break;
-                                       default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                case 0x10 :
-                                    {
-                                    Param_Info1("KLV Interpretations");
-                                    Info_B1(Code5,              "Code (5)");
-                                    switch (Code5)
-                                    {
-                                        case 0x01 :
-                                            {
-                                            Param_Info1("Filler");
-                                            Info_B1(Code6,      "Reserved");
-                                            Info_B1(Code7,      "Reserved");
-                                            Info_B1(Code8,      "Reserved");
-                                            }
-                                            break;
-                                        case 0x05 :
-                                            {
-                                            Param_Info1("Terminating Filler");
-                                            Info_B1(Code6,      "Reserved");
-                                            Info_B1(Code7,      "Reserved");
-                                            Info_B1(Code8,      "Reserved");
-                                            }
-                                            break;
-                                       default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                case 0x20 :
-                                    {
-                                    Param_Info1("XML Constructs and Interpretations");
-                                    Info_B1(Code5,              "Code (5)");
-                                    switch (Code5)
-                                    {
-                                        case 0x01 :
-                                            {
-                                            Param_Info1("XML Document Text");
-                                            Info_B1(Code6,      "Reserved");
-                                            Info_B1(Code7,      "Reserved");
-                                            Info_B1(Code8,      "Reserved");
-                                            }
-                                            break;
-                                       default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        default   :
-                            Skip_B5(                            "Unknown");
-                    }
-                    }
-                    break;
-                case 0x02 :
-                    {
-                    Param_Info1("Human Assigned Descriptors");
-                    Info_B1(Code3,                              "Code (3)");
-                    switch (Code3)
-                    {
-                        case 0x01 :
-                            {
-                            Param_Info1("Categorization");
-                            Info_B1(Code4,                      "Code (4)");
-                            switch (Code4)
-                            {
-                                case 0x02 :
-                                    {
-                                    Param_Info1("Cataloging and Indexing");
-                                    Info_B1(Code5,              "Code (5)");
-                                    switch (Code5)
-                                    {
-                                        case 0x01 :
-                                            {
-                                            Param_Info1("Catalog Data Status");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x02 :
-                                            {
-                                            Param_Info1("Thesaurus Name");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x03 :
-                                            {
-                                            Param_Info1("Theme");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x04 :
-                                            {
-                                            Param_Info1("Content Classification");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x05 :
-                                            {
-                                            Param_Info1("Keywords");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x06 :
-                                            {
-                                            Param_Info1("Key Frames");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x07 :
-                                            {
-                                            Param_Info1("Key Sounds");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x08 :
-                                            {
-                                            Param_Info1("Key Data");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x09 :
-                                            {
-                                            Param_Info1("Assigned Category Name");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x0A :
-                                            {
-                                            Param_Info1("Assigned Category Value");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x0B :
-                                            {
-                                            Param_Info1("Shot List");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x0C :
-                                            {
-                                            Param_Info1("Package User Comments");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x0D :
-                                            {
-                                            Param_Info1("Cue-In Words");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x0E :
-                                            {
-                                            Param_Info1("Cue-Out Words");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x0F :
-                                            {
-                                            Param_Info1("Key Frame Sample Count");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x10 :
-                                            {
-                                            Param_Info1("Keypoint Kind");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x11 :
-                                            {
-                                            Param_Info1("Keypoint Value");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x15 :
-                                            {
-                                            Param_Info1("Framework Thesaurus Name");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x16 :
-                                            {
-                                            Param_Info1("Component User Comments");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                       default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        default   :
-                            Skip_B5(                            "Unknown");
-                    }
-                    }
-                    break;
-                default   :
-                    Skip_B6(                                    "Unknown");
-            }
-            }
-            break;
-        case 0x04 :
-            {
-            Param_Info1("Parametric");
-            Info_B1(Code2,                                      "Code (2)");
-            switch (Code2)
-            {
-                case 0x01 :
-                    {
-                    Param_Info1("Video and Image Essence Characteristics");
-                    Info_B1(Code3,                              "Code (3)");
-                    switch (Code3)
-                    {
-                        case 0x02 :
-                            {
-                            Param_Info1("Image Source Characteristics");
-                            Info_B1(Code4,                      "Code (4)");
-                            switch (Code4)
-                            {
-                                case 0x01 :
-                                    {
-                                    Param_Info1("Opto-Electronic Formulation");
-                                    Info_B1(Code5,              "Code (5)");
-                                    switch (Code5)
-                                    {
-                                        case 0x01 :
-                                            {
-                                            Param_Info1("Transfer Characteristics");
-                                            Info_B1(Code6,              "Code (6)");
-                                            switch (Code6)
-                                            {
-                                                case 0x01 :
-                                                    {
-                                                    Param_Info1("Capture Gamma Equation");
-                                                    Info_B1(Code7, "Code (7)");
-                                                    switch (Code7)
-                                                    {
-                                                        case 0x00 :
-                                                            {
-                                                            Param_Info1("ISO/IEC 646:1991 - ISO 7-Bit Coded Character Set");
-                                                            }
-                                                            break;
-                                                        case 0x01 :
-                                                            {
-                                                            Param_Info1("Rational");
-                                                            }
-                                                            break;
-                                                        case 0x02 :
-                                                            {
-                                                            Param_Info1("UL");
-                                                            }
-                                                            break;
-                                                        default   :
-                                                            Info_B1(Code8, "Unknown");
-                                                    }
-                                                    Info_B1(Code8, "Reserved");
-                                                    }
-                                                    break;
-                                               default   :
-                                                    Skip_B2(            "Unknown");
-                                            }
-                                            }
-                                            break;
-                                       default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        case 0x06 :
-                            {
-                            Param_Info1("Digital Video and Image Compression Parameters");
-                            Info_B1(Code4,                      "Code (4)");
-                            switch (Code4)
-                            {
-                                case 0x03 :
-                                    {
-                                    Param_Info1("JPEG 2000 Coding Parameters");
-                                    Info_B1(Code5,              "Code (5)");
-                                    switch (Code5)
-                                    {
-                                        case 0x01 :
-                                            {
-                                            Param_Info1("Rsiz - Decoder capabilities");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x02 :
-                                            {
-                                            Param_Info1("Xsiz - Width");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x03 :
-                                            {
-                                            Param_Info1("Ysiz - Height");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x04 :
-                                            {
-                                            Param_Info1("XOsiz - Horizontal offset");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x05 :
-                                            {
-                                            Param_Info1("YOsiz - Vertical offset");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x06 :
-                                            {
-                                            Param_Info1("XTsiz - Width of one reference tile");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x07 :
-                                            {
-                                            Param_Info1("YTsiz - Height of one reference tile");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x08 :
-                                            {
-                                            Param_Info1("XTOsiz - Horizontal offset of the first tile");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x09 :
-                                            {
-                                            Param_Info1("YTOsiz - Vertical offset of the first tile");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x0A :
-                                            {
-                                            Param_Info1("Csiz - Number of components in the picture");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x0B :
-                                            {
-                                            Param_Info1("Picture Component Sizing");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x0C :
-                                            {
-                                            Param_Info1("Coding Style Default");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x0D :
-                                            {
-                                            Param_Info1("Quantization Default");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x0 :
-                                            {
-                                            Param_Info1("");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                       default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        default   :
-                            Skip_B5(                            "Unknown");
-                    }
-                    }
-                    break;
-                case 0x02 :
-                    {
-                    Param_Info1("Audio Essence Characteristics");
-                    Info_B1(Code3,                              "Code (3)");
-                    switch (Code3)
-                    {
-                        case 0x01 :
-                            {
-                            Param_Info1("Fundamental  Audio Characteristics");
-                            Info_B1(Code4,                      "Code (4)");
-                            switch (Code4)
-                            {
-                                case 0x01 :
-                                    {
-                                    Param_Info1("Audio Formulation");
-                                    Info_B1(Code5,              "Code (5)");
-                                    switch (Code5)
-                                    {
-                                        case 0x01 :
-                                            {
-                                            Param_Info1("Electrospatial Formulation");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x02 :
-                                            {
-                                            Param_Info1("Filtering Applied");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x03 :
-                                            {
-                                            Param_Info1("Audio Reference Level");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x04 :
-                                            {
-                                            Param_Info1("Channel Count");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x05 :
-                                            {
-                                            Param_Info1("Channel Assignment");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                       default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        default   :
-                            Skip_B5(                            "Unknown");
-                    }
-                    }
-                    break;
-                default   :
-                    Skip_B6(                                    "Unknown");
-            }
-            }
-            break;
-        case 0x06 :
-            {
-            Param_Info1("Relational");
-            Info_B1(Code2,                                      "Code (2)");
-            switch (Code2)
-            {
-                case 0x01 :
-                    {
-                    Param_Info1("Essence and Metadata Relationships");
-                    Info_B1(Code3,                              "Code (3)");
-                    switch (Code3)
-                    {
-                        case 0x01 :
-                            {
-                            Param_Info1("Essence to Essence Relationships");
-                            Info_B1(Code4,                      "Code (4)");
-                            switch (Code4)
-                            {
-                                case 0x04 :
-                                    {
-                                    Param_Info1("Object to Object Relationships");
-                                    Info_B1(Code5,              "Code (5)");
-                                    switch (Code5)
-                                    {
-                                        case 0x06 :
-                                            {
-                                            Param_Info1("Strong References Arrays");
-                                            Info_B1(Code6,              "Code (6)");
-                                            switch (Code6)
-                                            {
-                                                case 0x10 :
-                                                    {
-                                                    Param_Info1("Sub-descriptors");
-                                                    Skip_B2(            "Reserved");
-                                                    }
-                                                    break;
-                                               default   :
-                                                    Skip_B2(            "Unknown");
-                                            }
-                                            }
-                                            break;
-                                       default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        default   :
-                            Skip_B5(                            "Unknown");
-                    }
-                    }
-                    break;
-                default   :
-                    Skip_B6(                                    "Unknown");
-            }
-            }
-            break;
-        case 0x0D :
-            {
-            Param_Info1("User Organisation Registered For Public Use");
-            Info_B1(Code2,                                      "Organization");
-            switch (Code2)
-            {
-                case 0x01 :
-                    {
-                    Param_Info1("AAF");
-                    Info_B1(Code3,                              "Application");
-                    switch (Code3)
-                    {
-                        case 0x03 :
-                            {
-                            Param_Info1("MXF Generic Container Keys");
-                            Info_B1(Code4,                      "Structure Version");
-                            switch (Code4)
-                            {
-                                case 0x01 :
-                                    {
-                                    Param_Info1("Version 1");
-                                    Info_B1(Code5,              "Item Type Identifier");
-                                    switch (Code5)
-                                    {
-                                        case 0x05 : Param_Info1("CP Picture (SMPTE 386M)"); break;
-                                        case 0x06 : Param_Info1("CP Sound (SMPTE 386M)"); break;
-                                        case 0x07 : Param_Info1("CP Data (SMPTE 386M)"); break;
-                                        case 0x14 : Param_Info1("MXF in MXF? (To confirm)"); break;
-                                        case 0x15 : Param_Info1("GC Picture"); break;
-                                        case 0x16 : Param_Info1("GC Sound"); break;
-                                        case 0x17 : Param_Info1("GC Data"); break;
-                                        case 0x18 : Param_Info1("GC Compound"); break;
-                                        default   : ;
-                                    }
-                                    Info_B1(Code6,              "Essence Element Count");
-                                    Info_B1(Code7,              "Essence Element Type");
-                                    Info_B1(Code8,              "Essence Element Number");
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        default   :
-                            Skip_B5(                            "Unknown");
-                    }
-                    }
-                    break;
-                default   :
-                    Skip_B6(                                    "Unknown");
-            }
-            }
-            break;
-        case 0x0E :
-            {
-            Param_Info1("User Organisation Registered For Private Use");
-            Info_B1(Code2,                                      "Organization");
-            switch (Code2)
-            {
-                case 0x04 :
-                    {
-                    Param_Info1("Avid");
-                    Info_B1(Code3,                              "Application");
-                    switch (Code3)
-                    {
-                        case 0x03 :
-                            {
-                            Param_Info1("Container Keys");
-                            Info_B1(Code4,                      "Structure Version");
-                            switch (Code4)
-                            {
-                                case 0x01 :
-                                    {
-                                    Param_Info1("Version 1");
-                                    Info_B1(Code5,              "Item Type Identifier");
-                                    switch (Code5)
-                                    {
-                                        case 0x15 : Param_Info1("Picture"); break;
-                                        default   : ;
-                                    }
-                                    Info_B1(Code6,              "Essence Element Count");
-                                    Info_B1(Code7,              "Essence Element Type");
-                                    Info_B1(Code8,              "Essence Element Number");
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        default   :
-                            Skip_B5(                            "Unknown");
-                    }
-                    }
-                    break;
-                case 0x06 :
-                    {
-                    Param_Info1("Sony");
-                    Info_B1(Code3,                              "Application");
-                    switch (Code3)
-                    {
-                        case 0x7F :
-                            {
-                            Param_Info1("?");
-                            Info_B1(Code4,                      "?");
-                            switch (Code4)
-                            {
-                                case 0x03 :
-                                    {
-                                    Param_Info1("?");
-                                    Info_B1(Code5,              "?");
-                                    switch (Code5)
-                                    {
-                                        case 0x15 : Param_Info1("Picture"); break;
-                                        default   : ;
-                                    }
-                                    Info_B1(Code6,              "Essence Element Count");
-                                    Info_B1(Code7,              "Essence Element Type");
-                                    Info_B1(Code8,              "Essence Element Number");
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        default   :
-                            Skip_B5(                            "Unknown");
-                    }
-                    }
-                    break;
-                default   :
-                    Skip_B6(                                    "Unknown");
-            }
-            }
-            break;
-        default   :
-            Skip_B7(                                            "Unknown");
-    }
-}
-#endif //MEDIAINFO_TRACE
-
-//---------------------------------------------------------------------------
-#if MEDIAINFO_TRACE
-void File_Mxf::Info_UL_02xx01_Groups()
-{
-    Info_B1(Code1,                                              "Item Designator");
-    switch (Code1)
-    {
-        case 0x0D :
-            {
-            Param_Info1("User Organisation Registered For Public Use");
-            Info_B1(Code2,                                      "Organization");
-            switch (Code2)
-            {
-                case 0x01 :
-                    {
-                    Param_Info1("AAF");
-                    Info_B1(Code3,                              "Application");
-                    switch (Code3)
-                    {
-                        case 0x01 :
-                            {
-                            Param_Info1("Structural Metadata Sets");
-                            Info_B1(Code4,                      "Structure Version");
-                            switch (Code4)
-                            {
-                                case 0x01 :
-                                    {
-                                    Param_Info1("Version 1");
-                                    Info_B1(Code5,              "Structure Kind");
-                                    switch (Code5)
-                                    {
-                                        case 0x01 :
-                                            {
-                                            Param_Info1("MXF / AAF Association compatible sets & packs");
-                                            Info_B1(Code6,      "Set Kind (1)"); //See table 17
-                                            Info_B1(Code7,      "Set Kind (2)"); //See table 17
-                                            Info_B1(Code8,      "Reserved");
-                                            }
-                                            break;
-                                       default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        case 0x02 :
-                            {
-                            Param_Info1("MXF File Structure");
-                            Info_B1(Code4,                      "Structure Version");
-                            switch (Code4)
-                            {
-                                case 0x01 :
-                                    {
-                                    Param_Info1("Version 1");
-                                    Info_B1(Code5,              "Structure Kind");
-                                    switch (Code5)
-                                    {
-                                        case 0x01 :
-                                            {
-                                            Param_Info1("MXF File Structure sets & packs");
-                                            Info_B1(Code6,      "Set / Pack Kind");
-                                            switch (Code6)
-                                            {
-                                                case 0x02 :
-                                                    {
-                                                    Param_Info1("Header Partition");
-                                                    Info_B1(Code7, "Partition Status");
-                                                    Info_B1(Code8, "Reserved");
-                                                    }
-                                                    break;
-                                                case 0x03 :
-                                                    {
-                                                    Param_Info1("Body Partition");
-                                                    Info_B1(Code7, "Partition Status");
-                                                    Info_B1(Code8, "Reserved");
-                                                    }
-                                                    break;
-                                                case 0x04 :
-                                                    {
-                                                    Param_Info1("Footer Partition");
-                                                    Info_B1(Code7, "Partition Status");
-                                                    Info_B1(Code8, "Reserved");
-                                                    }
-                                                    break;
-                                                case 0x05 :
-                                                    {
-                                                    Param_Info1("Primer");
-                                                    Info_B1(Code7, "Version of the Primer Pack");
-                                                    Info_B1(Code8, "Reserved");
-                                                    }
-                                                    break;
-                                                case 0x10 :
-                                                    Param_Info1("Index Table Segment");
-                                                    Skip_B1(    "Version");
-                                                    Skip_B1(    "Reserved");
-                                                    break;
-                                                case 0x11 :
-                                                    Param_Info1("Random Index Pack");
-                                                    Skip_B1(    "Version");
-                                                    Skip_B1(    "Reserved");
-                                                    break;
-                                                default   :
-                                                    Skip_B3(    "Unknown");
-                                            }
-                                            }
-                                            break;
-                                       default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        case 0x03 :
-                            {
-                            Param_Info1("MXF Generic Container Keys");
-                            Info_B1(Code4,                      "Structure Version");
-                            switch (Code4)
-                            {
-                                case 0x01 :
-                                    {
-                                    Param_Info1("MXF-GC Version 1");
-                                    Info_B1(Code5,              "Item Type Identifier");
-                                    switch (Code5)
-                                    {
-                                        case 0x04 :
-                                            {
-                                            Param_Info1("CP-Compatible System Item"); //SMPTE 379M
-                                            Info_B1(Code6,      "System Scheme Identifier");
-                                            switch (Code6)
-                                            {
-                                                case 0x02 :
-                                                    {
-                                                    Param_Info1("SDTI-CP, version 1"); //SMPTE 385M
-                                                    Info_B1(Code7, "Metadata or Control Element Identifier");
-                                                    switch (Code7)
-                                                    {
-                                                        case 0x01 :
-                                                            {
-                                                            Param_Info1("System Metadata Pack");
-                                                            Info_B1(Code8, "Reserved");
-                                                            }
-                                                            break;
-                                                        case 0x02 :
-                                                            {
-                                                            Param_Info1("Package metadata set");
-                                                            Info_B1(Code8, "Metadata Block Count");
-                                                            }
-                                                            break;
-                                                        case 0x03 :
-                                                            {
-                                                            Param_Info1("Picture metadata set");
-                                                            Info_B1(Code8, "Metadata Block Count");
-                                                            }
-                                                            break;
-                                                        case 0x04 :
-                                                            {
-                                                            Param_Info1("Sound metadata set");
-                                                            Info_B1(Code8, "Metadata Block Count");
-                                                            }
-                                                            break;
-                                                        case 0x05 :
-                                                            {
-                                                            Param_Info1("Data metadata set");
-                                                            Info_B1(Code8, "Metadata Block Count");
-                                                            }
-                                                            break;
-                                                        case 0x06 :
-                                                            {
-                                                            Param_Info1("Control data set");
-                                                            Info_B1(Code8, "Metadata Block Count");
-                                                            }
-                                                            break;
-                                                        default   :
-                                                            Info_B1(Code8, "Metadata Block Count");
-                                                    }
-                                                    }
-                                                    break;
-                                                default   :
-                                                    Info_B1(Code7,      "Metadata or Control Element Identifier");
-                                                    Info_B1(Code8,      "Reserved");
-                                            }
-                                            }
-                                            break;
-                                        case 0x14 :
-                                            {
-                                            Param_Info1("GC-Compatible System Item"); //SMPTE 379M
-                                            Info_B1(Code6,      "System Scheme Identifier");
-                                            switch (Code6)
-                                            {
-                                                case 0x02 :
-                                                    {
-                                                    Param_Info1("GC System Scheme 1"); //SMPTE 394M
-                                                    Info_B1(Code7, "Metadata or Control Element Identifier");
-                                                    switch (Code7)
-                                                    {
-                                                        case 0x01 :
-                                                            Param_Info1("First Element");
-                                                            break;
-                                                        case 0x02 :
-                                                            Param_Info1("Subsequent Element");
-                                                            break;
-                                                        case 0x03 :
-                                                            Param_Info1("Picture Item Descriptor");
-                                                            break;
-                                                        case 0x04 :
-                                                            Param_Info1("Sound Item Descriptor");
-                                                            break;
-                                                        case 0x05 :
-                                                            Param_Info1("Data Item Descriptor");
-                                                            break;
-                                                        case 0x06 :
-                                                            Param_Info1("Control Item Descriptor");
-                                                            break;
-                                                        case 0x07 :
-                                                            Param_Info1("Compound Item Descriptor");
-                                                            break;
-                                                        default   : if (Code7>=0x10 && Code7<=0x7F) Param_Info1("Pack coded System Elements (SMPTE 336M)");
-                                                    }
-                                                    Info_B1(Code8, "Element Number");
-                                                    }
-                                                    break;
-                                                default   :
-                                                    Info_B1(Code7,      "Metadata or Control Element Identifier");
-                                                    Info_B1(Code8,      "Unknown");
-                                            }
-                                            }
-                                            break;
-                                       default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        case 0x04 :
-                            {
-                            Param_Info1("MXF / AAF Descriptive Metadata sets");
-                            Info_B1(Code4,                      "Structure Version");
-                            switch (Code4)
-                            {
-                                case 0x01 :
-                                    {
-                                    Param_Info1("Version 1");
-                                    Info_B1(Code5,              "Structure / Scheme Kind");
-                                    Info_B1(Code6,              "Reserved");
-                                    Info_B1(Code7,              "Reserved");
-                                    Info_B1(Code8,              "Reserved");
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        default   :
-                            Skip_B5(                            "Unknown");
-                    }
-                    }
-                    break;
-                default   :
-                    Skip_B6(                                    "Unknown");
-            }
-            }
-            break;
-        case 0x0E :
-            {
-            Param_Info1("User Organisation Registered For Private Use");
-            Skip_B7(                                            "Private");
-            break;
-            }
-        default   :
-            Skip_B7(                                            "Unknown");
-    }
-}
-#endif //MEDIAINFO_TRACE
-
-//---------------------------------------------------------------------------
-#if MEDIAINFO_TRACE
-void File_Mxf::Info_UL_040101_Values()
-{
-    Info_B1(Code1,                                              "Item Designator");
-    switch (Code1)
-    {
-        case 0x01 :
-            {
-            Param_Info1("Identification and location");
-            Info_B1(Code2,                                      "Code (2)");
-            switch (Code2)
-            {
-                case 0x01 :
-                    {
-                    Param_Info1("Globally Unique Identifiers");
-                    Info_B1(Code3,                              "Code (3)");
-                    switch (Code3)
-                    {
-                        case 0x01 :
-                            {
-                            Param_Info1("SDTI Payload Identifiers");
-                            Skip_B5(                            "Data");
-                            }
-                            break;
-                        case 0x02 :
-                            {
-                            Param_Info1("File Format Identifiers");
-                            Skip_B5(                            "Data");
-                            }
-                            break;
-                        case 0x03 :
-                            {
-                            Param_Info1("Definition Identifiers");
-                            Skip_B5(                            "Data");
-                            }
-                            break;
-                        default   :
-                            Skip_B5(                            "Unknown");
-                    }
-                    }
-                    break;
-                case 0x02 :
-                    {
-                    Param_Info1("Globally Unique Locators");
-                    Info_B1(Code3,                              "Code (3)");
-                    Skip_B5(                                    "Unknown");
-                    }
-                    break;
-                case 0x03 :
-                    {
-                    Param_Info1("Locally Unique Identifiers");
-                    Info_B1(Code3,                              "Code (3)");
-                    switch (Code3)
-                    {
-                        case 0x01 :
-                            {
-                            Param_Info1("For Information Only Do Not Use");
-                            Skip_B5(                            "Unknown");
-                            }
-                            break;
-                        case 0x02 :
-                            {
-                            Param_Info1("Track Identifiers");
-                            Info_B1(Code4,                      "Kind");
-                            switch (Code4)
-                            {
-                                case 0x01 :
-                                    {
-                                    Param_Info1("Metadata Track Kinds");
-                                    Skip_B1(                    "Unknown");
-                                    Skip_B3(                    "Unknown");
-                                    }
-                                    break;
-                                case 0x02 :
-                                    {
-                                    Param_Info1("Essence Track Kinds");
-                                    Skip_B1(                    "Unknown");
-                                    Skip_B3(                    "Unknown");
-                                    }
-                                    break;
-                                case 0x03 :
-                                    {
-                                    Param_Info1("Other Track Kinds");
-                                    Skip_B1(                    "Unknown");
-                                    Skip_B3(                    "Unknown");
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        default   :
-                            Skip_B5(                            "Unknown");
-                    }
-                    }
-                    break;
-                default   :
-                    Skip_B6(                                    "Unknown");
-            }
-            }
-            break;
-        case 0x03 :
-            {
-            Param_Info1("Interpretive");
-            Info_B1(Code2,                                      "Code (2)");
-            switch (Code2)
-            {
-                case 0x01 :
-                    {
-                    Param_Info1("Per element?");
-                    Info_B1(Code3,                              "Code (3)");
-                    switch (Code3)
-                    {
-                        case 0x01 :
-                            {
-                            Param_Info1("Channels?");
-                            Info_B1(Code4,                      "Code (4)");
-                            switch (Code4)
-                            {
-                                case 0x01 :
-                                    {
-                                    Param_Info1("L");
-                                    Skip_B4(                    "Reserved");
-                                    }
-                                    break;
-                                case 0x02 :
-                                    {
-                                    Param_Info1("R");
-                                    Skip_B4(                    "Reserved");
-                                    }
-                                    break;
-                                case 0x03 :
-                                    {
-                                    Param_Info1("C");
-                                    Skip_B4(                    "Reserved");
-                                    }
-                                    break;
-                                case 0x04 :
-                                    {
-                                    Param_Info1("LFE");
-                                    Skip_B4(                    "Reserved");
-                                    }
-                                    break;
-                                case 0x05 :
-                                    {
-                                    Param_Info1("Ls");
-                                    Skip_B4(                    "Reserved");
-                                    }
-                                    break;
-                                case 0x06 :
-                                    {
-                                    Param_Info1("Rs");
-                                    Skip_B4(                    "Reserved");
-                                    }
-                                    break;
-                                case 0x20 :
-                                    {
-                                    Param_Info1("M1");
-                                    Skip_B4(                    "Reserved");
-                                    }
-                                    break;
-                                case 0x21 :
-                                    {
-                                    Param_Info1("M2");
-                                    Skip_B4(                    "Reserved");
-                                    }
-                                    break;
-                                case 0x22 :
-                                    {
-                                    Param_Info1("Lt");
-                                    Skip_B4(                    "Reserved");
-                                    }
-                                    break;
-                                case 0x23 :
-                                    {
-                                    Param_Info1("Rt");
-                                    Skip_B4(                    "Reserved");
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        case 0x02 :
-                            {
-                            Param_Info1("Per group?");
-                            Info_B1(Code4,                      "Code (4)");
-                            switch (Code4)
-                            {
-                                case 0x01 :
-                                    {
-                                    Param_Info1("5.1");
-                                    Skip_B4(                    "Reserved");
-                                    }
-                                    break;
-                                case 0x11 :
-                                    {
-                                    Param_Info1("Dual Mono");
-                                    Skip_B4(                    "Reserved");
-                                    }
-                                    break;
-                                case 0x18 :
-                                    {
-                                    Param_Info1("Lt+Rt");
-                                    Skip_B4(                    "Reserved");
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        default   :
-                            Skip_B5(                            "Unknown");
-                    }
-                    }
-                    break;
-                case 0x02 :
-                    {
-                    Param_Info1("Per element?");
-                    Info_B1(Code3,                              "Code (3)");
-                    switch (Code3)
-                    {
-                        case 0x01 :
-                            {
-                            Param_Info1("Channels?");
-                            Info_B1(Code4,                      "Code (4)");
-                            switch (Code4)
-                            {
-                                case 0x01 :
-                                    {
-                                    Param_Info1("L");
-                                    Skip_B4(                    "Reserved");
-                                    }
-                                    break;
-                                case 0x02 :
-                                    {
-                                    Param_Info1("R");
-                                    Skip_B4(                    "Reserved");
-                                    }
-                                    break;
-                                case 0x03 :
-                                    {
-                                    Param_Info1("C");
-                                    Skip_B4(                    "Reserved");
-                                    }
-                                    break;
-                                case 0x04 :
-                                    {
-                                    Param_Info1("LFE");
-                                    Skip_B4(                    "Reserved");
-                                    }
-                                    break;
-                                case 0x05 :
-                                    {
-                                    Param_Info1("Ls");
-                                    Skip_B4(                    "Reserved");
-                                    }
-                                    break;
-                                case 0x06 :
-                                    {
-                                    Param_Info1("Rs");
-                                    Skip_B4(                    "Reserved");
-                                    }
-                                    break;
-                                case 0x20 :
-                                    {
-                                    Param_Info1("Lt+Rt?");
-                                    Info_B1(Code5,              "Code (5)");
-                                    switch (Code5)
-                                    {
-                                        case 0x03 :
-                                            {
-                                            Param_Info1("Lt");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x04 :
-                                            {
-                                            Param_Info1("Rt");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        case 0x02 :
-                            {
-                            Param_Info1("Per group?");
-                            Info_B1(Code4,                      "Code (4)");
-                            switch (Code4)
-                            {
-                                case 0x01 :
-                                    {
-                                    Param_Info1("5.1");
-                                    Skip_B4(                    "Reserved");
-                                    }
-                                    break;
-                                case 0x10 :
-                                    {
-                                    Param_Info1("2.0");
-                                    Skip_B4(                    "Reserved");
-                                    }
-                                    break;
-                                case 0x18 :
-                                    {
-                                    Param_Info1("Lt+Rt");
-                                    Skip_B4(                    "Reserved");
-                                    }
-                                    break;
-                                case 0x20 :
-                                    {
-                                    Param_Info1("?");
-                                    Info_B1(Code5,              "Code (5)");
-                                    switch (Code5)
-                                    {
-                                        case 0x01 :
-                                            {
-                                            Param_Info1("2.0");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x09 :
-                                            {
-                                            Param_Info1("Lt+Rt");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        default   :
-                            Skip_B5(                            "Unknown");
-                    }
-                    }
-                    break;
-                default   :
-                    Skip_B6(                                    "Unknown");
-            }
-            }
-            break;
-        case 0x04 :
-            {
-            Param_Info1("Parametric");
-            Info_B1(Code2,                                      "Code (2)");
-            switch (Code2)
-            {
-                case 0x01 :
-                    {
-                    Param_Info1("Picture essence");
-                    Info_B1(Code3,                              "Code (3)");
-                    switch (Code3)
-                    {
-                        case 0x01 :
-                            {
-                            Param_Info1("Fundamental Picture Characteristics");
-                            Info_B1(Code4,                      "Code (4)");
-                            switch (Code4)
-                            {
-                                case 0x01 :
-                                    {
-                                    Param_Info1("Picture Source Characteristics");
-                                    Info_B1(Code5,              "Code (5)");
-                                    switch (Code5)
-                                    {
-                                        case 0x01 :
-                                            {
-                                            Param_Info1("Transfer Characteristic");
-                                            Info_B1(Code6,      "Code (6)");
-                                            switch (Code6)
-                                            {
-                                                case 0x01 :
-                                                    Param_Info1("BT.470 System B/G");
-                                                    Skip_B2(    "Reserved");
-                                                    break;
-                                                case 0x02 :
-                                                    Param_Info1("BT.709");
-                                                    Skip_B2(    "Reserved");
-                                                    break;
-                                                case 0x03 :
-                                                    Param_Info1("SMPTE 240M");
-                                                    Skip_B2(    "Reserved");
-                                                    break;
-                                                case 0x04 :
-                                                    Param_Info1("SMPTE 274M");
-                                                    Skip_B2(    "Reserved");
-                                                    break;
-                                                case 0x05 :
-                                                    Param_Info1("BT.1361");
-                                                    Skip_B2(    "Reserved");
-                                                    break;
-                                                case 0x06 :
-                                                    Param_Info1("Linear");
-                                                    Skip_B2(    "Reserved");
-                                                    break;
-                                                case 0x07 :
-                                                    Param_Info1("SMPTE 428M");
-                                                    Skip_B2(    "Reserved");
-                                                    break;
-                                                default   :
-                                                    Skip_B2(    "Unknown");
-                                            }
-                                            }
-                                            break;
-                                        case 0x02 :
-                                            {
-                                            Param_Info1("Coding Equations");
-                                            Info_B1(Code6,      "Code (6)");
-                                            switch (Code6)
-                                            {
-                                                case 0x01 :
-                                                    Param_Info1("BT.601");
-                                                    Skip_B2(    "Reserved");
-                                                    break;
-                                                case 0x02 :
-                                                    Param_Info1("BT.709");
-                                                    Skip_B2(    "Reserved");
-                                                    break;
-                                                case 0x03 :
-                                                    Param_Info1("SMPTE 240M");
-                                                    Skip_B2(    "Reserved");
-                                                    break;
-                                                default   :
-                                                    Skip_B2(    "Unknown");
-                                            }
-                                            }
-                                            break;
-                                        case 0x03 :
-                                            {
-                                            Param_Info1("Color Primaries");
-                                            Info_B1(Code6,      "Code (6)");
-                                            switch (Code6)
-                                            {
-                                                case 0x01 :
-                                                    Param_Info1("BT.601 NTSC");
-                                                    Skip_B2(    "Reserved");
-                                                    break;
-                                                case 0x02 :
-                                                    Param_Info1("BT.470 System B/G");
-                                                    Skip_B2(    "Reserved");
-                                                    break;
-                                                case 0x03 :
-                                                    Param_Info1("BT.709");
-                                                    Skip_B2(    "Reserved");
-                                                    break;
-                                                default   :
-                                                    Skip_B2(    "Unknown");
-                                            }
-                                            }
-                                            break;
-                                        default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        case 0x02 :
-                            Param_Info1("Picture Coding Characteristics");
-                            Info_B1(Code4,                      "Code (4)");
-                            switch (Code4)
-                            {
-                                case 0x01 :
-                                    Param_Info1("Uncompressed Picture Coding");
-                                    Skip_B1(                    "Item Type Identifier"); //if 0x14: SMPTE 384M Uncompressed picture Line wrapped
-                                    Skip_B1(                    "System Scheme Identifier"); //SMPTE 384M
-                                    Skip_B1(                    "System Element Identifier"); //SMPTE 384M
-                                    Skip_B1(                    "Reserved");
-                                    break;
-                                case 0x02 :
-                                    {
-                                    Param_Info1("Compressed Picture Coding");
-                                    Info_B1(Code5,              "Code (5)");
-                                    switch (Code5)
-                                    {
-                                        case 0x01 :
-                                            {
-                                            Param_Info1("MPEG Compression");
-                                            Info_B1(Code6,      "Code (6)");
-                                            switch (Code6)
-                                            {
-                                                case 0x01 :
-                                                    Param_Info1("MPEG-2 MP@ML");
-                                                    Skip_B2(    "Unknown");
-                                                    break;
-                                                case 0x02 :
-                                                    Param_Info1("MPEG-2 422P@ML");
-                                                    Skip_B2(    "Unknown");
-                                                    break;
-                                                case 0x03 :
-                                                    Param_Info1("MPEG-2 MP@HL");
-                                                    Skip_B2(    "Unknown");
-                                                    break;
-                                                case 0x04 :
-                                                    Param_Info1("MPEG-2 422P@HL");
-                                                    Skip_B2(    "Unknown");
-                                                    break;
-                                                case 0x10 :
-                                                    Param_Info1("MPEG-1");
-                                                    Skip_B2(    "Unknown");
-                                                    break;
-                                                case 0x20 :
-                                                    Param_Info1("MPEG-4 Visual");
-                                                    Skip_B2(    "Unknown");
-                                                    break;
-                                                case 0x32 :
-                                                    Param_Info1("AVC");
-                                                    Skip_B2(    "Unknown");
-                                                    break;
-                                                default   :
-                                                    Skip_B2(    "Unknown");
-                                            }
-                                            }
-                                            break;
-                                        case 0x02 :
-                                            {
-                                            Param_Info1("DV Video Compression");
-                                            Info_B1(Code6,      "Code (6)");
-                                            switch (Code6)
-                                            {
-                                                case 0x02 :
-                                                    Param_Info1("DV-Based Compression");
-                                                    Info_B1(Code7, "DV type (SMPTE 383)");
-                                                    Info_B1(Code8, "Mapping Kind"); Param_Info1(Mxf_EssenceContainer_Mapping(Code6, Code7, Code8));
-                                                    break;
-                                                default   :
-                                                    Skip_B2(    "Unknown");
-                                            }
-                                            }
-                                            break;
-                                        case 0x03 :
-                                            {
-                                            Param_Info1("Individual Picture Coding Schemes");
-                                            Info_B1(Code6,      "Code (6)");
-                                            switch (Code6)
-                                            {
-                                                case 0x01 :
-                                                    Param_Info1("JPEG 2000");
-                                                    Skip_B1(    "Unused");
-                                                    Skip_B1(    "Unused");
-                                                    break;
-                                                case 0x06 :
-                                                    Param_Info1("ProRes");
-                                                    Skip_B1(    "Profile");
-                                                    Skip_B1(    "Unused");
-                                                    break;
-                                                default   :
-                                                    Skip_B2(    "Unknown");
-                                            }
-                                            }
-                                            break;
-                                        case 0x71 :
-                                            {
-                                            Param_Info1("VC-3");
-                                            Skip_B1(            "Variant");
-                                            Skip_B1(            "Unused");
-                                            Skip_B1(            "Unused");
-                                            }
-                                            break;
-                                        default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            break;
-                        default   :
-                            Skip_B5(                            "Unknown");
-                    }
-                    }
-                    break;
-                case 0x02 :
-                    {
-                    Param_Info1("Sound essence");
-                    Info_B1(Code3,                              "Code (3)");
-                    switch (Code3)
-                    {
-                        case 0x01 :
-                            Skip_B5(                            "Sound coding or compression");
-                            break;
-                        case 0x02 :
-                            {
-                            Param_Info1("Sound Coding Characteristics");
-                            Info_B1(Code4,                      "Code (4)");
-                            switch (Code4)
-                            {
-                                case 0x01 :
-                                    {
-                                    Param_Info1("Uncompressed Sound Coding");
-                                    Info_B1(Code5,              "Code (5)");
-                                    switch (Code5)
-                                    {
-                                        case 0x7E :
-                                            {
-                                            Param_Info1("PCM (AIFF)");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        case 0x7F :
-                                            {
-                                            Param_Info1("Undefined");
-                                            Skip_B3(            "Reserved");
-                                            }
-                                            break;
-                                        default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                case 0x02 :
-                                    {
-                                    Param_Info1("Compressed Sound Coding");
-                                    Info_B1(Code5,              "Code (5)");
-                                    switch (Code5)
-                                    {
-                                        case 0x03 :
-                                            {
-                                            Param_Info1("Compressed Audio Coding");
-                                            Info_B1(Code6,      "Code (6)");
-                                            switch (Code6)
-                                            {
-                                                case 0x01 :
-                                                    {
-                                                    Param_Info1("Compandeded Audio Coding");
-                                                    Info_B1(Code7, "Code (7)");
-                                                    switch (Code7)
-                                                    {
-                                                        case 0x01 :
-                                                            Param_Info1("A-law Coded Audio (default)");
-                                                            Skip_B1("Unknown");
-                                                            break;
-                                                        case 0x02 :
-                                                            Param_Info1("DV Compressed Audio");
-                                                            Skip_B1("Unknown");
-                                                            break;
-                                                        default   :
-                                                            Skip_B2("Unknown");
-                                                    }
-                                                    }
-                                                    break;
-                                                case 0x02 :
-                                                    {
-                                                    Param_Info1("SMPTE 338M Audio Coding");
-                                                    Info_B1(Code7, "Code (7)");
-                                                    switch (Code7)
-                                                    {
-                                                        case 0x01 :
-                                                            Param_Info1("AC-3");
-                                                            Skip_B1("Unknown");
-                                                            break;
-                                                        case 0x04 :
-                                                            Param_Info1("MPEG-1 Audio Layer 1");
-                                                            Skip_B1("Unknown");
-                                                            break;
-                                                        case 0x05 :
-                                                            Param_Info1("MPEG-1 Audio Layer 2");
-                                                            Skip_B1("Unknown");
-                                                            break;
-                                                        case 0x06 :
-                                                            Param_Info1("MPEG-2 Audio Layer 1");
-                                                            Skip_B1("Unknown");
-                                                            break;
-                                                        case 0x1C :
-                                                            Param_Info1("Dolby E");
-                                                            Skip_B1("Unknown");
-                                                            break;
-                                                        default   :
-                                                            Skip_B2("Unknown");
-                                                    }
-                                                    }
-                                                    break;
-                                                case 0x03 :
-                                                    {
-                                                    Param_Info1("MPEG-2 Coding (not defined in SMPTE 338M)");
-                                                    Info_B1(Code7, "Code (7)");
-                                                    switch (Code7)
-                                                    {
-                                                        case 0x01 :
-                                                            Param_Info1("AAC version 2");
-                                                            Skip_B1("Unknown");
-                                                            break;
-                                                        default   :
-                                                            Skip_B2("Unknown");
-                                                    }
-                                                    }
-                                                    break;
-                                                case 0x04 :
-                                                    {
-                                                    Param_Info1("MPEG-4 Audio Coding");
-                                                    Info_B1(Code7, "Code (7)");
-                                                    switch (Code7)
-                                                    {
-                                                        case 0x01 :
-                                                            Param_Info1("MPEG-4 Speech Profile");
-                                                            Skip_B1("Unknown");
-                                                            break;
-                                                        case 0x02 :
-                                                            Param_Info1("MPEG-4 Synthesis Profile");
-                                                            Skip_B1("Unknown");
-                                                            break;
-                                                        case 0x03 :
-                                                            Param_Info1("MPEG-4 Scalable Profile");
-                                                            Skip_B1("Unknown");
-                                                            break;
-                                                        case 0x04 :
-                                                            Param_Info1("MPEG-4 Main Profile");
-                                                            Skip_B1("Unknown");
-                                                            break;
-                                                        case 0x05 :
-                                                            Param_Info1("MPEG-4 High Quality Audio Profile");
-                                                            Skip_B1("Unknown");
-                                                            break;
-                                                        case 0x06 :
-                                                            Param_Info1("MPEG-4 Low Delay Audio Profile");
-                                                            Skip_B1("Unknown");
-                                                            break;
-                                                        case 0x07 :
-                                                            Param_Info1("MPEG-4 Natural Audio Profile");
-                                                            Skip_B1("Unknown");
-                                                            break;
-                                                        case 0x08 :
-                                                            Param_Info1("MPEG-4 Mobile Audio Internetworking Profile");
-                                                            Skip_B1("Unknown");
-                                                            break;
-                                                        default   :
-                                                            Skip_B1("Unknown");
-                                                    }
-                                                    }
-                                                    break;
-                                                default   :
-                                                    Skip_B2(    "Unknown");
-                                            }
-                                            }
-                                            break;
-                                        default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                case 0x10 :
-                                    {
-                                    Param_Info1("Sound Channel Labeling");
-                                    Info_B1(Code5,              "Code (5)");
-                                    switch (Code5)
-                                    {
-                                        case 0x03 :
-                                            {
-                                            Param_Info1("Sound Channel Labeling SMPTE 429-2");
-                                            Info_B1(Code6,      "Code (6)");
-                                            switch (Code6)
-                                            {
-                                                case 0x01 :
-                                                    {
-                                                    Param_Info1("Sound Channel Labeling SMPTE 429-2 Sets");
-                                                    Info_B1(Code7, "Code (7)");
-                                                    switch (Code7)
-                                                    {
-                                                        case 0x01 :
-                                                            Param_Info1("SMPTE-429-2 Channel Configuration 1");
-                                                            Skip_B1("Reserved");
-                                                            break;
-                                                        default   :
-                                                            Skip_B1("Unknown");
-                                                    }
-                                                    }
-                                                    break;
-                                                default   :
-                                                    Skip_B2(    "Unknown");
-                                            }
-                                            }
-                                            break;
-                                        case 0x04 :
-                                            {
-                                            Param_Info1("Sound Channel Labeling SMPTE 2067-2");
-                                            Info_B1(Code6,      "Code (6)");
-                                            switch (Code6)
-                                            {
-                                                case 0x01 :
-                                                    {
-                                                    Param_Info1("MXF Multichannel Audio Framework");
-                                                    Skip_B2(    "Reserved");
-                                                    }
-                                                    break;
-                                                default   :
-                                                    Skip_B2(    "Unknown");
-                                            }
-                                            }
-                                            break;
-                                        default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        default   :
-                            Skip_B5(                            "Unknown");
-                    }
-                    }
-                    break;
-                default   :
-                    Skip_B6(                                    "Unknown");
-            }
-            }
-            break;
-        case 0x0D :
-            {
-            Param_Info1("User Organisation Registered For Public Use");
-            Info_B1(Code2,                                      "Organization");
-            switch (Code2)
-            {
-                case 0x01 :
-                    {
-                    Param_Info1("AAF");
-                    Info_B1(Code3,                              "Application");
-                    switch (Code3)
-                    {
-                        case 0x02 :
-                            {
-                            Param_Info1("Operational Patterns");
-                            Info_B1(Code4,                      "Version");
-                            switch (Code4)
-                            {
-                                case 0x01 :
-                                    {
-                                    Param_Info1("Version 1");
-                                    Info_B1(Code5,              "Item Complexity");
-                                    Info_B1(Code6,              "Package Complexity");
-                                    Info_B1(Code7,              "Qualifier");
-                                        Skip_Flags(Code7, 3,    "uni/multi-track");
-                                        Skip_Flags(Code7, 2,    "stream/non-stream file");
-                                        Skip_Flags(Code7, 1,    "internal/external essence");
-                                    Info_B1(Code8,              "Reserved");
-                                    }
-                                    break;
-                                case 0x02 :
-                                    {
-                                    Info_B1(Code5,              "Code (5)");
-                                    switch (Code5)
-                                    {
-                                        case 0x01 :
-                                            Skip_B3(            "Essence container kind");
-                                            break;
-                                        default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        case 0x03 :
-                            {
-                            Param_Info1("Essence Container Application");
-                            Info_B1(Code4,                      "Structure Version");
-                            switch (Code4)
-                            {
-                                case 0x01 :
-                                    {
-                                    Param_Info1("MXF EC Structure Version 1");
-                                    Info_B1(Code5,              "Essence container Kind");
-                                    switch (Code5)
-                                    {
-                                        case 0x01 :
-                                            Param_Info1("Deprecated Essence Container Kind");
-                                            Skip_B3(            "Unknown");
-                                            break;
-                                        case 0x02 :
-                                            {
-                                            Param_Info1("Essence Container Kind");
-                                            Info_B1(Code6,      "Code (6)");
-                                            switch (Code6)
-                                            {
-                                                case 0x01 : //SMPTE 386M
-                                                    {
-                                                    Param_Info1("Type D-10 Mapping");
-                                                    Skip_B1(            "MPEG Constraints"); //SMPTE 356M
-                                                    Skip_B1(            "Template Extension");
-                                                    }
-                                                    break;
-                                                case 0x02 :
-                                                    {
-                                                    Param_Info1("DV Mappings");
-                                                    Skip_B1(            "Mapping Kind");
-                                                    Skip_B1(            "Locally defined");
-                                                    }
-                                                    break;
-                                                case 0x03 :
-                                                    {
-                                                    Param_Info1("Type D-11 Mapping");
-                                                    Skip_B1(            "Mapping Kind");
-                                                    Skip_B1(            "Locally defined");
-                                                    }
-                                                    break;
-                                                case 0x04 :
-                                                    {
-                                                    Param_Info1("MPEG ES mappings");
-                                                    Info_B1(Code7,      "ISO13818-1 stream_id bits 6..0"); Param_Info1(Ztring::ToZtring(0x80+Code7, 16));
-                                                    Info_B1(Code8,      "Mapping Kind"); Param_Info1(Mxf_EssenceContainer_Mapping(Code6, Code7, Code8));
-                                                    }
-                                                    break;
-                                                case 0x05 : //SMPTE 384M
-                                                    {
-                                                    Param_Info1("Uncompressed Pictures");
-                                                    Info_B1(Code7,      "Number of lines / field rate combination"); //SMPTE 384M
-                                                    Info_B1(Code8,      "Mapping Kind"); Param_Info1(Mxf_EssenceContainer_Mapping(Code6, Code7, Code8));
-                                                    }
-                                                    break;
-                                                case 0x06 :
-                                                    {
-                                                    Param_Info1("AES-BWF");
-                                                    Info_B1(Code7,      "Mapping Kind"); Param_Info1(Mxf_EssenceContainer_Mapping(Code6, Code7, 0x00));
-                                                    Skip_B1(            "Locally defined");
-                                                    }
-                                                    break;
-                                                case 0x07 :
-                                                    {
-                                                    Param_Info1("MPEG PES mappings");
-                                                    Info_B1(Code7,      "ISO13818-1 stream_id bits 6..0"); Param_Info1(Ztring::ToZtring(0x80+Code7, 16));
-                                                    Info_B1(Code8,      "Mapping Kind"); Param_Info1(Mxf_EssenceContainer_Mapping(Code6, Code7, Code8));
-                                                    }
-                                                    break;
-                                                case 0x08 :
-                                                    {
-                                                    Param_Info1("MPEG PS mappings");
-                                                    Info_B1(Code7,      "ISO13818-1 stream_id bits 6..0"); Param_Info1(Ztring::ToZtring(0x80+Code7, 16));
-                                                    Info_B1(Code8,      "Mapping Kind"); Param_Info1(Mxf_EssenceContainer_Mapping(Code6, Code7, Code8));
-                                                    }
-                                                    break;
-                                                case 0x09 :
-                                                    {
-                                                    Param_Info1("MPEG TS mappings");
-                                                    Info_B1(Code7,      "ISO13818-1 stream_id bits 6..0"); Param_Info1(Ztring::ToZtring(0x80+Code7, 16));
-                                                    Info_B1(Code8,      "Mapping Kind"); Param_Info1(Mxf_EssenceContainer_Mapping(Code6, Code7, Code8));
-                                                    }
-                                                    break;
-                                                case 0x0A :
-                                                    {
-                                                    Param_Info1("A-law Sound Element Mapping");
-                                                    Info_B1(Code7,      "Mapping Kind"); Param_Info1(Mxf_EssenceContainer_Mapping(Code6, Code7, 0xFF));
-                                                    Skip_B1(            "Locally defined");
-                                                    }
-                                                    break;
-                                                case 0x0B :
-                                                    {
-                                                    Param_Info1("Encrypted Generic Container");
-                                                    Skip_B1(            "Mapping Kind");
-                                                    Skip_B1(            "Locally defined");
-                                                    }
-                                                    break;
-                                                case 0x0C :
-                                                    {
-                                                    Param_Info1("JPEG 2000 Picture Mapping");
-                                                    Skip_B1(            "Mapping Kind");
-                                                    Skip_B1(            "Locally defined");
-                                                    }
-                                                    break;
-                                                case 0x11 :
-                                                    {
-                                                    Param_Info1("VC-3 Picture Element");
-                                                    Info_B1(Code7,      "Content Kind"); Param_Info1(Mxf_EssenceContainer_Mapping(Code6, Code7, 0xFF));
-                                                    Skip_B1(            "Reserved");
-                                                    }
-                                                    break;
-                                                case 0x13 :
-                                                    {
-                                                    Param_Info1("Timed Text");
-                                                    Skip_B1(            "Reserved");
-                                                    Skip_B1(            "Reserved");
-                                                    }
-                                                    break;
-                                                case 0x16 :
-                                                    {
-                                                    Param_Info1("AVC Picture Element");
-                                                    Skip_B1(            "Unknown");
-                                                    Skip_B1(            "Unknown");
-                                                    }
-                                                    break;
-                                                case 0x1C :
-                                                    {
-                                                    Param_Info1("ProRes");
-                                                    Info_B1(Code7,      "Content Kind"); Param_Info1(Mxf_EssenceContainer_Mapping(Code6, Code7, 0xFF));
-                                                    Skip_B1(            "Unknown");
-                                                    }
-                                                    break;
-                                                case 0x7F :
-                                                    {
-                                                    Param_Info1("Generic Essence Container Wrapping");
-                                                    Skip_B1(            "Mapping Kind");
-                                                    Skip_B1(            "Locally defined");
-                                                    }
-                                                    break;
-                                                default   :
-                                                    {
-                                                    Skip_B1(            "Mapping Kind");
-                                                    Skip_B1(            "Locally defined");
-                                                    }
-                                            }
-                                            }
-                                            break;
-                                        default   :
-                                            Skip_B1(            "Essence container Kind");
-                                            Skip_B1(            "Mapping Kind");
-                                            Skip_B1(            "Locally defined");
-                                    }
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        case 0x04 :
-                            {
-                            Param_Info1("MXF / AAF compatible Descriptive Metadata Labels");
-                            Info_B1(Code4,                      "Label Version");
-                            switch (Code4)
-                            {
-                                case 0x01 :
-                                    {
-                                    Param_Info1("Version 1");
-                                    Info_B1(Code5,              "Scheme Kind");
-                                    Info_B1(Code6,              "Reserved");
-                                    Info_B1(Code7,              "Reserved");
-                                    Info_B1(Code8,              "Reserved");
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        default   :
-                            Skip_B5(                            "Unknown");
-                    }
-                    }
-                    break;
-                case 0x02 :
-                    {
-                    Param_Info1("EBU/UER");
-                    Skip_B6(                                    "Unknown");
-                    }
-                    break;
-                case 0x03 :
-                    {
-                    Param_Info1("Pro-MPEG Forum");
-                    Skip_B6(                                    "Unknown");
-                    }
-                    break;
-                case 0x04 :
-                    {
-                    Param_Info1("BBC");
-                    Skip_B6(                                    "Unknown");
-                    }
-                    break;
-                case 0x05 :
-                    {
-                    Param_Info1("IRT");
-                    Skip_B6(                                    "Unknown");
-                    }
-                    break;
-                case 0x06 :
-                    {
-                    Param_Info1("ARIB");
-                    Skip_B6(                                    "Unknown");
-                    }
-                    break;
-                default   :
-                    Skip_B6(                                    "Unknown");
-            }
-            }
-            break;
-        case 0x0E :
-            {
-            Param_Info1("User Organisation Registered For Private Use");
-            Info_B1(Code2,                                      "Code (2)");
-            switch (Code2)
-            {
-                case 0x04 :
-                    {
-                    Param_Info1("Avid");
-                    Info_B1(Code3,                              "Code (3)");
-                    switch (Code3)
-                    {
-                        case 0x02 :
-                            {
-                            Param_Info1("Essence Compression?");
-                            Info_B1(Code4,                      "?");
-                            switch (Code4)
-                            {
-                                case 0x01 :
-                                    {
-                                    Param_Info1("?");
-                                    Info_B1(Code5,              "?");
-                                    switch (Code5)
-                                    {
-                                        case 0x02 :
-                                            {
-                                            Param_Info1("?");
-                                            Info_B1(Code6,      "Code (6)");
-                                            switch (Code6)
-                                            {
-                                                case 0x04 :
-                                                    Param_Info1("VC-3");
-                                                    Skip_B2(    "Unknown");
-                                                    break;
-                                                default   :
-                                                    Skip_B2(    "Unknown");
-                                            }
-                                            }
-                                            break;
-                                        default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        case 0x03 :
-                            {
-                            Param_Info1("Essence Container Application");
-                            Info_B1(Code4,                      "Structure Version");
-                            switch (Code4)
-                            {
-                                case 0x01 :
-                                    {
-                                    Param_Info1("MXF EC Structure Version 1");
-                                    Info_B1(Code5,              "Essence container Kind");
-                                    switch (Code5)
-                                    {
-                                        case 0x02 :
-                                            {
-                                            Param_Info1("Essence Container Kind");
-                                            Info_B1(Code6,      "Code (6)");
-                                            switch (Code6)
-                                            {
-                                                case 0x06 :
-                                                    Param_Info1("VC-3");
-                                                    Skip_B2(    "Unknown");
-                                                    break;
-                                                default   :
-                                                    Skip_B2(    "Unknown");
-                                            }
-                                            }
-                                            break;
-                                        default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        default   :
-                            Skip_B5(                            "Unknown");
-                    }
-                    }
-                    break;
-                case 0x06 :
-                    {
-                    Param_Info1("Sony");
-                    Info_B1(Code3,                              "Code (3)");
-                    switch (Code3)
-                    {
-                        case 0x04 :
-                            {
-                            Param_Info1("Essence Compression?");
-                            Info_B1(Code4,                      "?");
-                            switch (Code4)
-                            {
-                                case 0x01 :
-                                    {
-                                    Param_Info1("?");
-                                    Info_B1(Code5,              "?");
-                                    switch (Code5)
-                                    {
-                                        case 0x02 :
-                                            {
-                                            Param_Info1("?");
-                                            Info_B1(Code6,      "Code (6)");
-                                            switch (Code6)
-                                            {
-                                                case 0x04 :
-                                                    {
-                                                    Param_Info1("?");
-                                                    Info_B1(Code7,      "Code (7)");
-                                                    switch (Code7)
-                                                    {
-                                                        case 0x02 :
-                                                            Param_Info1("?");
-                                                            Info_B1(Code8,      "Code (8)");
-                                                            switch (Code8)
-                                                            {
-                                                                case 0x01 :
-                                                                    Param_Info1("RAW SQ");
-                                                                    break;
-                                                                default   :
-                                                                    ;
-                                                            }
-                                                            break;
-                                                        default   :
-                                                            Skip_B1(    "Unknown");
-                                                    }
-                                                    }
-                                                    break;
-                                                default   :
-                                                    Skip_B2(    "Unknown");
-                                            }
-                                            }
-                                            break;
-                                        default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                        case 0x0D :
-                            {
-                            Param_Info1("Essence Container?");
-                            Info_B1(Code4,                      "?");
-                            switch (Code4)
-                            {
-                                case 0x03 :
-                                    {
-                                    Param_Info1("?");
-                                    Info_B1(Code5,              "?");
-                                    switch (Code5)
-                                    {
-                                        case 0x02 :
-                                            {
-                                            Param_Info1("?");
-                                            Info_B1(Code6,      "Code (6)");
-                                            switch (Code6)
-                                            {
-                                                case 0x01 :
-                                                    {
-                                                    Param_Info1("?");
-                                                    Info_B1(Code7,      "Code (7)");
-                                                    switch (Code7)
-                                                    {
-                                                        case 0x01 :
-                                                            Param_Info1("RAW?");
-                                                            Skip_B1(    "Unknown");
-                                                            break;
-                                                        default   :
-                                                            Skip_B1(    "Unknown");
-                                                    }
-                                                    }
-                                                    break;
-                                                default   :
-                                                    Skip_B2(    "Unknown");
-                                            }
-                                            }
-                                            break;
-                                        default   :
-                                            Skip_B3(            "Unknown");
-                                    }
-                                    }
-                                    break;
-                                default   :
-                                    Skip_B4(                    "Unknown");
-                            }
-                            }
-                            break;
-                            default   :
-                                Skip_B5(                        "Private");
-                        }
-                        }
-                        break;
-                default   :
-                    Skip_B6(                                    "Private");
-            }
-            }
-            break;
-        default   :
-            Skip_B7(                                            "Unknown");
-    }
-}
-#endif //MEDIAINFO_TRACE
 
 //---------------------------------------------------------------------------
 void File_Mxf::Skip_UL(const char* Name)
@@ -16328,8 +14376,11 @@ void File_Mxf::Get_BER(int64u &Value, const char* Name)
 //***************************************************************************
 
 //---------------------------------------------------------------------------
-void File_Mxf::ChooseParser(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
+void File_Mxf::ChooseParser__FromCodingScheme(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
 {
+    if (Config->ParseSpeed<0)
+        return;
+
     if ((Descriptor->second.EssenceCompression.hi&0xFFFFFFFFFFFFFF00LL)!=0x060E2B3404010100LL || (Descriptor->second.EssenceCompression.lo&0xFF00000000000000LL)!=0x0400000000000000LL)
         return ChooseParser__FromEssenceContainer (Essence, Descriptor);
 
@@ -16412,14 +14463,17 @@ void File_Mxf::ChooseParser(const essences::iterator &Essence, const descriptors
                                                         return;
                                                     switch (Code5)
                                                     {
+                                                        case 0x02 :
+                                                                    return ChooseParser_Mga(Essence, Descriptor);
                                                         case 0x01 :
                                                         case 0x7E :
                                                         case 0x7F : if (Descriptor->second.ChannelCount==1) //PCM, but one file is found with Dolby E in it
                                                                         ChooseParser_ChannelGrouping(Essence, Descriptor);
                                                                     if (Descriptor->second.ChannelCount==2) //PCM, but one file is found with Dolby E in it
                                                                         ChooseParser_SmpteSt0337(Essence, Descriptor);
-                                                                    if (Descriptor->second.ChannelCount>2 && Descriptor->second.ChannelCount!=(int32u)-1) //PCM, but one file is found with Dolby E in it
+                                                                    if (Descriptor->second.ChannelCount>=2 && Descriptor->second.ChannelCount!=(int32u)-1) //PCM, but one file is found with Dolby E in it
                                                                         ChooseParser_ChannelSplitting(Essence, Descriptor);
+                                                                    [[fallthrough]];
                                                         default   : return ChooseParser_Pcm(Essence, Descriptor);
                                                     }
                                         case 0x02 : //Compressed coding
@@ -16451,6 +14505,7 @@ void File_Mxf::ChooseParser(const essences::iterator &Essence, const descriptors
                                                                                                         return ChooseParser_SmpteSt0337(Essence, Descriptor);
                                                                                                     else
                                                                                                         return ChooseParser_Mpega(Essence, Descriptor);
+                                                                                        case 0x0A : return ChooseParser_Iab(Essence, Descriptor);
                                                                                         case 0x1C : if (Descriptor->second.ChannelCount==1)
                                                                                                         return ChooseParser_ChannelGrouping(Essence, Descriptor); //Dolby E (in 2 mono streams)
                                                                                                     else
@@ -16478,6 +14533,15 @@ void File_Mxf::ChooseParser(const essences::iterator &Essence, const descriptors
                                                                                     }
                                                                         default   : return;
                                                                     }
+
+                                                        case 0x04 : //MPEG Compressed Audio (SMPTE ST 381-4)
+                                                                    switch (Code6)
+                                                                    {
+                                                                        case 0x03 :
+                                                                        case 0x04 : return ChooseParser_Aac(Essence, Descriptor);
+                                                                        default   : return;
+                                                                    }
+
                                                          default   : return;
                                                     }
                                          default   : return;
@@ -16491,441 +14555,120 @@ void File_Mxf::ChooseParser(const essences::iterator &Essence, const descriptors
 //---------------------------------------------------------------------------
 void File_Mxf::ChooseParser__FromEssenceContainer(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
 {
-    int8u Code1=(int8u)((Descriptor->second.EssenceContainer.lo&0xFF00000000000000LL)>>56);
-    int8u Code2=(int8u)((Descriptor->second.EssenceContainer.lo&0x00FF000000000000LL)>>48);
-    int8u Code3=(int8u)((Descriptor->second.EssenceContainer.lo&0x0000FF0000000000LL)>>40);
-    int8u Code4=(int8u)((Descriptor->second.EssenceContainer.lo&0x000000FF00000000LL)>>32);
-    int8u Code5=(int8u)((Descriptor->second.EssenceContainer.lo&0x00000000FF000000LL)>>24);
-    int8u Code6=(int8u)((Descriptor->second.EssenceContainer.lo&0x0000000000FF0000LL)>>16);
-    //int8u Code7=(int8u)((Descriptor->second.EssenceContainer.lo&0x000000000000FF00LL)>> 8);
-
-    switch (Code1)
-    {
-        case 0x0D : //Public Use
-                    switch (Code2)
-                    {
-                        case 0x01 : //AAF
-                                    switch (Code3)
-                                    {
-                                        case 0x03 : //Essence Container Application
-                                                    switch (Code4)
-                                                    {
-                                                        case 0x01 : //MXF EC Structure version
-                                                                    switch (Code5)
-                                                                    {
-                                                                        case 0x02 : //Essence container kind
-                                                                                    switch (Code6)
-                                                                                    {
-                                                                                        case 0x01 : switch(Descriptor->second.StreamKind)
-                                                                                                    {
-                                                                                                        case Stream_Video : return ChooseParser_Mpegv(Essence, Descriptor);
-                                                                                                        case Stream_Audio : return ChooseParser_SmpteSt0331(Essence, Descriptor);
-                                                                                                        default           : return;
-                                                                                                    }
-                                                                                        case 0x02 : return; //DV
-                                                                                        case 0x05 : return ChooseParser_Raw(Essence, Descriptor);
-                                                                                        case 0x06 : if (Descriptor->second.ChannelCount==1) //PCM, but one file is found with Dolby E in it
-                                                                                                        ChooseParser_ChannelGrouping(Essence, Descriptor);
-                                                                                                    if (Descriptor->second.ChannelCount==2) //PCM, but one file is found with Dolby E in it
-                                                                                                        ChooseParser_SmpteSt0337(Essence, Descriptor);
-                                                                                                    if (Descriptor->second.ChannelCount>2 && Descriptor->second.ChannelCount!=(int32u)-1) //PCM, but one file is found with Dolby E in it
-                                                                                                        ChooseParser_ChannelSplitting(Essence, Descriptor);
-                                                                                                    return ChooseParser_Pcm(Essence, Descriptor);
-                                                                                        case 0x04 : return; //MPEG ES mappings with Stream ID
-                                                                                        case 0x0A : return ChooseParser_Alaw(Essence, Descriptor);
-                                                                                        case 0x0C : return ChooseParser_Jpeg2000(Essence, Descriptor);
-                                                                                        case 0x10 : return ChooseParser_Avc(Essence, Descriptor);
-                                                                                        case 0x11 : return ChooseParser_Vc3(Essence, Descriptor);
-                                                                                        case 0x13 : return ChooseParser_TimedText(Essence, Descriptor);
-                                                                                        default   : return;
-                                                                                    }
-                                                                        default   : return;
-                                                                    }
-                                                         default   : return;
-                                                    }
-                                         default   : return;
-                                    }
-                        default   : return;
-                    }
-        case 0x0E : //Private Use
-                    switch (Code2)
-                    {
-                        case 0x04 : //Avid
-                                    switch (Code3)
-                                    {
-                                        case 0x03 : //Essence Container Application
-                                                    switch (Code4)
-                                                    {
-                                                        case 0x01 : //MXF EC Structure version
-                                                                    switch (Code5)
-                                                                    {
-                                                                        case 0x02 : //Essence container kind
-                                                                                    switch (Code6)
-                                                                                    {
-                                                                                        case 0x06 : return ChooseParser_Vc3(Essence, Descriptor);
-                                                                                        default   : return;
-                                                                                    }
-                                                                        default   : return;
-                                                                    }
-                                                         default   : return;
-                                                    }
-                                         default   : return;
-                                    }
-                        default   : return;
-                    }
-        default   : return;
+    switch (Descriptor->second.EssenceContainer.lo & 0xFFFFFFFFFFFF0000) {
+    case Labels::MXFGCSMPTED10Mappings:
+        switch (Descriptor->second.StreamKind)
+        {
+        case Stream_Video: ChooseParser_Mpegv(Essence, Descriptor); break;
+        case Stream_Audio: ChooseParser_SmpteSt0331(Essence, Descriptor); break;
+        default:;
+        }
+        break;
+    case Labels::MXFGCDVDIFMappings: ChooseParser_DV(Essence, Descriptor); break;
+    //case Labels::MXFGCSMPTED11Mappings:
+    //case Labels::MXFGCMPEGES:
+    case Labels::MXFGCUncompressedPictures: ChooseParser_Raw(Essence, Descriptor); break;
+    case Labels::MXFGCAESBWFAudio:
+        if (Descriptor->second.ChannelCount == 1) { //PCM, but one file is found with Dolby E in it
+            ChooseParser_ChannelGrouping(Essence, Descriptor);
+        }
+        if (Descriptor->second.ChannelCount == 2) { //PCM, but one file is found with Dolby E in it
+            ChooseParser_SmpteSt0337(Essence, Descriptor);
+        }
+        if (Descriptor->second.ChannelCount > 2 && Descriptor->second.ChannelCount != (int32u)-1) { //PCM, but one file is found with Dolby E in it
+            ChooseParser_ChannelSplitting(Essence, Descriptor);
+        }
+        ChooseParser_Pcm(Essence, Descriptor);
+        break;
+    //case Labels::MXFGCMPEGPES:
+    //case Labels::MXFGCMPEGPS:
+    //case Labels::MXFGCMPEGTS:
+    case Labels::MXFGCALawAudioMappings: ChooseParser_Alaw(Essence, Descriptor); break;
+    //case Labels::MXFGCEncryptedDataMappings:
+    case Labels::MXFGCJPEG2000PictureMappings: ChooseParser_Jpeg2000(Essence, Descriptor); break;
+    //case Labels::MXFGCGenericVBIDataMappingUndefinedPayload:
+    //case Labels::MXFGCGenericANCDataMappingUndefinedPayload:
+    //case Labels::MXFGCAVCNALUnitStream:
+    case Labels::MXFGCAVCByteStream: ChooseParser_Avc(Essence, Descriptor); break;
+    case Labels::AvidTechnologyIncVC3Pictures:
+    case Labels::MXFGCVC3Pictures: ChooseParser_Vc3(Essence, Descriptor); break;
+    case Labels::MXFGCVC1Pictures: ChooseParser_Vc1(Essence, Descriptor); break;
+    case Labels::MXFGCGenericData: ChooseParser_TimedText(Essence, Descriptor); break;
+    //case Labels::MXFGCTIFFEP:
+    //case Labels::MXFGCVC2Pictures:
+    case Labels::MXF_GC_AAC_ADIF: ChooseParser_Adif(Essence, Descriptor); break;
+    case Labels::MXF_GC_AAC_ADTS: ChooseParser_Adts(Essence, Descriptor); break;
+    case Labels::MXF_GC_AAC_LATM_LOAS: ChooseParser_Latm(Essence, Descriptor); break;
+    //case Labels::MXFGCACESPictures:
+    //case Labels::MXFGCDMCVTData:
+    //case Labels::MXFGCVC5EssenceContainerLabel:
+    case Labels::MXFGCEssenceContainerProResPicture: ChooseParser_ProRes(Essence, Descriptor); break;
+    case Labels::MXFGCImmersiveAudio: ChooseParser_Iab(Essence, Descriptor); break;
+    case Labels::MXFGCEssenceContainerDNxPacked: ChooseParser_Vc3(Essence, Descriptor); break;
+    //case Labels::MXFGCHEVCNALUnitStream: (Essence, Descriptor); break;
+    case Labels::MXFGCHEVCByteStream: ChooseParser_Hevc(Essence, Descriptor); break;
+    case Labels::MXFGCJPEGXSPictures: ChooseParser_JpegXs(Essence, Descriptor); break;
+    case Labels::MXFGCFFV1Pictures: ChooseParser_Ffv1(Essence, Descriptor); break;
+    case Labels::MXFGCMGAAudioMappings: ChooseParser_Mga(Essence, Descriptor); break;
     }
 }
 
 //---------------------------------------------------------------------------
 void File_Mxf::ChooseParser__FromEssence(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
 {
-    int32u Code_Compare3=Code.lo>>32;
+    if (Config->ParseSpeed<0)
+        return;
 
-    switch (Code_Compare3)
-    {
-        case Elements::GenericContainer_Aaf3        : return ChooseParser__Aaf(Essence, Descriptor);
-        case Elements::GenericContainer_Avid3       : return ChooseParser__Avid(Essence, Descriptor);
-        case Elements::Dolby_PHDRImageMetadataItem3 : return ChooseParser__Dolby(Essence, Descriptor);
-        case Elements::GenericContainer_Sony3       : return ChooseParser__Sony(Essence, Descriptor);
-        default                                     : return;
+    switch (Code.lo & 0xFFFFFFFFFF00FF00) {
+    case Essences::D10Video: ChooseParser_Mpegv(Essence, Descriptor); break;
+    case Essences::D10Audio: ChooseParser_SmpteSt0331(Essence, Descriptor); break;
+    case Essences::UncompressedSystem_Line: ChooseParser_Mxf(Essence, Descriptor); break;
+    case Essences::D11Video: ChooseParser_Hdcam(Essence, Descriptor); break;
+    case Essences::Uncompressed_Frame:
+    case Essences::Uncompressed_Clip:
+    case Essences::Uncompressed_Line: ChooseParser_Raw(Essence, Descriptor); break;
+    case Essences::MPEG_Frame:
+    case Essences::MPEG_Clip:
+    case Essences::MPEG_Custom: ChooseParser_Mpegv(Essence, Descriptor); ChooseParser_Avc(Essence, Descriptor); ChooseParser_Hevc(Essence, Descriptor); break;
+    case Essences::JPEG2000: ChooseParser_Jpeg2000(Essence, Descriptor); break;
+    case Essences::VC1_Frame:
+    case Essences::VC1_Clip: ChooseParser_Vc1(Essence, Descriptor); break;
+    case Essences::AvidTechnologyInc_VC3_Frame:
+    case Essences::AvidTechnologyInc_VC3_Clip:
+    case Essences::AvidTechnologyInc_VC3_Custom:
+    case Essences::VC3_Frame:
+    case Essences::VC3_Clip: ChooseParser_Vc3(Essence, Descriptor); break;
+    case Essences::ProRes: ChooseParser_ProRes(Essence, Descriptor); break;
+    case Essences::FFV1_Frame:
+    case Essences::FFV1_Clip: ChooseParser_Ffv1(Essence, Descriptor); break;
+    case Essences::PCM1:
+    case Essences::PCM2:
+    case Essences::DVAudio:
+    case Essences::PCM_P2: ChooseParser_Pcm(Essence, Descriptor); break;
+    case Essences::MPEGA_Frame:
+    case Essences::MPEGA_Clip:
+    case Essences::MPEGA_Custom: ChooseParser_Aac(Essence, Descriptor); ChooseParser_Mpega(Essence, Descriptor); break;
+    case Essences::ALaw_Frame:
+    case Essences::ALaw_Clip:
+    case Essences::ALaw_Custom: ChooseParser_Alaw(Essence, Descriptor); break;
+    case Essences::IAB_Temp:
+    case Essences::IAB_Clip:
+    case Essences::IAB_Frame: ChooseParser_Iab(Essence, Descriptor); break;
+    case Essences::MGA_Frame:
+    case Essences::MGA_Clip: ChooseParser_Mga(Essence, Descriptor); break;
+    case Essences::VBI_Frame: ChooseParser_Vbi(Essence, Descriptor); break;
+    case Essences::ANC_Frame: ChooseParser_Ancillary(Essence, Descriptor); break;
+    case Essences::xANC_Line:
+    case Essences::VANC_Line:
+    case Essences::HANC_Line: ChooseParser_xAnc(Essence, Descriptor); break;
+    case Essences::TimedText: ChooseParser_TimedText(Essence, Descriptor); break;
+    case Essences::DVDIF_Frame:
+    case Essences::DVDIF_Clip: ChooseParser_DV(Essence, Descriptor); break;
+    case Essences::FrameWrappedISXDData: ChooseParser_Isxd(Essence, Descriptor); break;
+    case Essences::FrameWrappedISXDData2: ChooseParser_Isxd(Essence, Descriptor); break;
+    case Essences::PHDRImageMetadataItem: ChooseParser_Phdr(Essence, Descriptor); break;
+    case Essences::HdrVividMetadataItem: ChooseParser_HdrVivid(Essence, Descriptor); break;
     }
-}
-
-//---------------------------------------------------------------------------
-void File_Mxf::ChooseParser__Aaf(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
-{
-    int32u Code_Compare4=(int32u)Code.lo;
-    int8u  Code_Compare4_1=Code_Compare4>>24;
-
-    switch (Code_Compare4_1)
-    {
-        case 0x05 : //CP Picture
-                    ChooseParser__Aaf_CP_Picture(Essence, Descriptor);
-                    break;
-        case 0x06 : //CP Sound
-                    ChooseParser__Aaf_CP_Sound(Essence, Descriptor);
-                    break;
-        case 0x07 : //CP Data
-                    ChooseParser__Aaf_CP_Data(Essence, Descriptor);
-                    break;
-        case 0x14 : //MXF in MXF?
-                    ChooseParser__Aaf_14(Essence, Descriptor);
-                    break;
-        case 0x15 : //CP Picture
-                    ChooseParser__Aaf_GC_Picture(Essence, Descriptor);
-                    break;
-        case 0x16 : //CP Sound
-                    ChooseParser__Aaf_GC_Sound(Essence, Descriptor);
-                    break;
-        case 0x17 : //CP Data
-                    ChooseParser__Aaf_GC_Data(Essence, Descriptor);
-                    break;
-        case 0x18 : //CP Compound
-                    ChooseParser__Aaf_GC_Compound(Essence, Descriptor);
-                    break;
-        default   : //Unknown
-                    ;
-    }
-}
-
-//---------------------------------------------------------------------------
-void File_Mxf::ChooseParser__Avid(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
-{
-    int32u Code_Compare4=(int32u)Code.lo;
-    int8u  Code_Compare4_1=Code_Compare4>>24;
-
-    switch (Code_Compare4_1)
-    {
-        case 0x15 : //CP Picture
-                    ChooseParser__Avid_Picture(Essence, Descriptor);
-                    break;
-        default   : //Unknown
-                    ;
-    }
-}
-
-//---------------------------------------------------------------------------
-// 0x05, SMPTE 386M
-void File_Mxf::ChooseParser__Aaf_CP_Picture(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
-{
-    int32u Code_Compare4=(int32u)Code.lo;
-    int8u  Code_Compare4_3=(int8u)(Code_Compare4>>8);
-
-    Essences[Code_Compare4].StreamKind=Stream_Video;
-    Essences[Code_Compare4].StreamPos=Code_Compare4&0x000000FF;
-
-    switch (Code_Compare4_3)
-    {
-        case 0x01 : //D-10 Video, SMPTE 386M
-                    ChooseParser_Mpegv(Essence, Descriptor);
-                    break;
-        default   : //Unknown
-                    ;
-    }
-}
-
-//---------------------------------------------------------------------------
-void File_Mxf::ChooseParser__Dolby(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
-{
-    int8u Code3=(int8u)((Code.lo&0x0000FF0000000000LL)>>40);
-    int8u Code4=(int8u)((Code.lo&0x000000FF00000000LL)>>32);
-
-    switch (Code3)
-    {
-        case 0x06 :
-                    switch (Code4)
-                    {
-                    
-                        case 0x07 : ChooseParser_DolbyVisionFrameData(Essence, Descriptor);
-                        default:;
-                    }
-                    break;
-        default   : ;
-    }
-}
-
-//---------------------------------------------------------------------------
-void File_Mxf::ChooseParser__Sony(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
-{
-    int32u Code_Compare4=(int32u)Code.lo;
-    int8u  Code_Compare4_1=Code_Compare4>>24;
-
-    switch (Code_Compare4_1)
-    {
-        case 0x15 : //CP Picture
-                    ChooseParser__Sony_Picture(Essence, Descriptor);
-                    break;
-        default   : //Unknown
-                    ;
-    }
-}
-
-//---------------------------------------------------------------------------
-// 0x06, SMPTE 386M
-void File_Mxf::ChooseParser__Aaf_CP_Sound(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
-{
-    int32u Code_Compare4=(int32u)Code.lo;
-    int8u  Code_Compare4_3=(int8u)(Code_Compare4>>8);
-
-    Essences[Code_Compare4].StreamKind=Stream_Audio;
-    Essences[Code_Compare4].StreamPos=Code_Compare4&0x000000FF;
-
-    switch (Code_Compare4_3)
-    {
-        case 0x10 : //D-10 Audio, SMPTE 386M
-                    ChooseParser_SmpteSt0331(Essence, Descriptor);
-                    break;
-        default   : //Unknown
-                    ;
-    }
-}
-
-//---------------------------------------------------------------------------
-// 0x07, SMPTE 386M
-void File_Mxf::ChooseParser__Aaf_CP_Data(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
-{
-}
-
-//---------------------------------------------------------------------------
-// 0x14
-void File_Mxf::ChooseParser__Aaf_14(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
-{
-    int32u Code_Compare4=(int32u)Code.lo;
-    int8u  Code_Compare4_3=(int8u)(Code_Compare4>>8);
-
-    switch (Code_Compare4_3)
-    {
-        case 0x01 : //MXF in MXF?
-                    Essence->second.Parsers.push_back(new File_Mxf());
-                    break;
-        default   : ;
-    }
-}
-
-//---------------------------------------------------------------------------
-// 0x15
-void File_Mxf::ChooseParser__Aaf_GC_Picture(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
-{
-    int32u Code_Compare4=(int32u)Code.lo;
-    int8u  Code_Compare4_3=(int8u)(Code_Compare4>>8);
-
-    Essences[Code_Compare4].StreamKind=Stream_Video;
-    Essences[Code_Compare4].StreamPos=Code_Compare4&0x000000FF;
-
-    switch (Code_Compare4_3)
-    {
-        case 0x01 : //RV24
-                    ChooseParser_RV24(Essence, Descriptor);
-                    break;
-        case 0x02 : //Raw video
-                    ChooseParser_Raw(Essence, Descriptor);
-                    break;
-        case 0x05 : //SMPTE 381M, Frame wrapped
-                    ChooseParser_Mpegv(Essence, Descriptor); //Trying...
-                    Essences[Code_Compare4].Infos["Format_Settings_Wrapping"]=__T("Frame");
-                    DataMustAlwaysBeComplete=true;
-                    break;
-        case 0x06 : //SMPTE 381M, Clip wrapped
-                    ChooseParser_Mpegv(Essence, Descriptor); //Trying...
-                    Essences[Code_Compare4].Infos["Format_Settings_Wrapping"]=__T("Clip");
-                    break;
-        case 0x07 : //SMPTE 381M, Custom wrapped
-                    ChooseParser_Mpegv(Essence, Descriptor); //Trying...
-                    Essences[Code_Compare4].Infos["Format_Settings_Wrapping"]=__T("Custom");
-                    break;
-        case 0x08 : //JPEG 2000
-                    ChooseParser_Jpeg2000(Essence, Descriptor);
-                    break;
-        case 0x0D : //VC-3
-                    ChooseParser_Vc3(Essence, Descriptor);
-                    break;
-        case 0x17 : //ProRes
-                    ChooseParser_ProRes(Essence, Descriptor);
-                    break;
-        default   : //Unknown
-                    ;
-    }
-}
-
-//---------------------------------------------------------------------------
-// 0x16
-void File_Mxf::ChooseParser__Aaf_GC_Sound(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
-{
-    int32u Code_Compare4=(int32u)Code.lo;
-    int8u  Code_Compare4_3=(int8u)(Code_Compare4>>8);
-
-    Essences[Code_Compare4].StreamKind=Stream_Audio;
-    Essences[Code_Compare4].StreamPos=Code_Compare4&0x000000FF;
-
-    switch (Code_Compare4_3)
-    {
-        case 0x01 : //BWF (PCM)
-        case 0x02 : //BWF (PCM)
-        case 0x03 : //DV Audio (PCM)
-        case 0x04 : //P2 Audio (PCM)
-                    ChooseParser_Pcm(Essence, Descriptor);
-                    break;
-        case 0x05 : //MPEG Audio
-                    ChooseParser_Mpega(Essence, Descriptor);
-                    break;
-        case 0x08 : //A-law, Frame wrapped
-                    ChooseParser_Alaw(Essence, Descriptor);
-                    Essences[Code_Compare4].Infos["Format_Settings_Wrapping"]=__T("Frame");
-                    DataMustAlwaysBeComplete=true;
-                    break;
-        case 0x09 : //A-law, Clip wrapped
-                    ChooseParser_Alaw(Essence, Descriptor);
-                    Essences[Code_Compare4].Infos["Format_Settings_Wrapping"]=__T("Clip");
-                    break;
-        case 0x0A : //A-law, Custom wrapped
-                    ChooseParser_Alaw(Essence, Descriptor);
-                    Essences[Code_Compare4].Infos["Format_Settings_Wrapping"]=__T("Custom");
-                    break;
-        default   : //Unknown
-                    ;
-    }
-}
-
-//---------------------------------------------------------------------------
-// 0x17
-void File_Mxf::ChooseParser__Aaf_GC_Data(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
-{
-    int32u Code_Compare4=(int32u)Code.lo;
-    int8u  Code_Compare4_3=(int8u)(Code_Compare4>>8);
-
-    switch (Code_Compare4_3)
-    {
-        case 0x01 : //VBI, SMPTE ST 436
-                    #if defined(MEDIAINFO_VBI_YES)
-                        MayHaveCaptionsInStream=true;
-                        Essence->second.Parsers.push_back(new File_Vbi());
-                    #else
-                        Essence->second.Parsers.push_back(new File__Analyze());
-                    #endif //defined(MEDIAINFO_VBI_YES)
-                    break;
-        case 0x02 : //Ancillary
-                    #if defined(MEDIAINFO_ANCILLARY_YES)
-                        if (!Ancillary)
-                        {
-                            Ancillary=new File_Ancillary();
-                            MayHaveCaptionsInStream=true;
-                        }
-                        Essence->second.Parsers.push_back(Ancillary);
-                        Ancillary_IsBinded=true;
-                    #endif //defined(MEDIAINFO_ANCILLARY_YES)
-                    break;
-        case 0x08 : //Line Wrapped Data Element, SMPTE 384M
-        case 0x09 : //Line Wrapped VANC Data Element, SMPTE 384M
-        case 0x0A : //Line Wrapped HANC Data Element, SMPTE 384M
-                    break;
-        case 0x0B : //Timed Text
-                    ChooseParser_TimedText(Essence, Descriptor);
-                    break;
-        default   : //Unknown
-                    ;
-    }
-}
-
-//---------------------------------------------------------------------------
-// 0x18
-void File_Mxf::ChooseParser__Aaf_GC_Compound(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
-{
-    int32u Code_Compare4=(int32u)Code.lo;
-    int8u  Code_Compare4_3=(int8u)(Code_Compare4>>8);
-
-    Essences[Code_Compare4].StreamKind=Stream_Video; //Default to video, audio will be merge later
-    Essences[Code_Compare4].StreamPos=Code_Compare4&0x000000FF;
-
-    switch (Code_Compare4_3)
-    {
-        case 0x01 : //DV
-        case 0x02 : //DV
-                    ChooseParser_DV(Essence, Descriptor);
-                    break;
-        default   : //Unknown
-                    ;
-    }
-}
-
-//---------------------------------------------------------------------------
-// 0x15
-void File_Mxf::ChooseParser__Avid_Picture(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
-{
-    int32u Code_Compare4=(int32u)Code.lo;
-    int8u  Code_Compare4_3=(int8u)(Code_Compare4>>8);
-
-    Essences[Code_Compare4].StreamKind=Stream_Video;
-    Essences[Code_Compare4].StreamPos=Code_Compare4&0x000000FF;
-
-    switch (Code_Compare4_3)
-    {
-        case 0x05 : //VC-1, Frame wrapped
-                    ChooseParser_Vc3(Essence, Descriptor);
-                    Essences[Code_Compare4].Infos["Format_Settings_Wrapping"]=__T("Frame");
-                    DataMustAlwaysBeComplete=true;
-                    break;
-        case 0x06 : //VC-1, Clip wrapped
-                    ChooseParser_Vc3(Essence, Descriptor);
-                    Essences[Code_Compare4].Infos["Format_Settings_Wrapping"]=__T("Clip");
-                    break;
-        case 0x07 : //VC-1, Custom wrapped
-                    ChooseParser_Vc3(Essence, Descriptor);
-                    Essences[Code_Compare4].Infos["Format_Settings_Wrapping"]=__T("Custom");
-                    break;
-        default   : //Unknown
-                    ;
-    }
-}
-
-//---------------------------------------------------------------------------
-// 0x15
-void File_Mxf::ChooseParser__Sony_Picture(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
-{
-    int32u Code_Compare4=(int32u)Code.lo;
-
-    Essences[Code_Compare4].StreamKind=Stream_Video;
-    Essences[Code_Compare4].StreamPos=Code_Compare4&0x000000FF;
 }
 
 //---------------------------------------------------------------------------
@@ -16960,7 +14703,7 @@ void File_Mxf::ChooseParser_DV(const essences::iterator &Essence, const descript
         File__Analyze* Parser=new File_Unknown();
         Open_Buffer_Init(Parser);
         Parser->Stream_Prepare(Stream_Video);
-        Parser->Fill(Stream_Audio, 0, Audio_Format, "DV");
+        Parser->Fill(Stream_Audio, 0, Audio_Format, "PCM");
     #endif
     Essence->second.Parsers.push_back(Parser);
 }
@@ -17092,6 +14835,66 @@ void File_Mxf::ChooseParser_Aac(const essences::iterator &Essence, const descrip
         Open_Buffer_Init(Parser);
         Parser->Stream_Prepare(Stream_Audio);
         Parser->Fill(Stream_Audio, 0, Audio_Format, "AAC");
+    #endif
+    Essence->second.Parsers.push_back(Parser);
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ChooseParser_Adif(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
+{
+    Essence->second.StreamKind=Stream_Audio;
+
+    //Filling
+    #if defined(MEDIAINFO_AAC_YES)
+        File_Aac* Parser=new File_Aac;
+        Parser->Mode=File_Aac::Mode_ADIF;
+    #else
+        //Filling
+        File__Analyze* Parser=new File_Unknown();
+        Open_Buffer_Init(Parser);
+        Parser->Stream_Prepare(Stream_Audio);
+        Parser->Fill(Stream_Audio, 0, Audio_Format, "AAC");
+        Parser->Fill(Stream_Audio, 0, Audio_MuxingMode, "ADIF");
+    #endif
+    Essence->second.Parsers.push_back(Parser);
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ChooseParser_Adts(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
+{
+    Essence->second.StreamKind=Stream_Audio;
+
+    //Filling
+    #if defined(MEDIAINFO_AAC_YES)
+        File_Aac* Parser=new File_Aac;
+        Parser->Mode=File_Aac::Mode_ADTS;
+    #else
+        //Filling
+        File__Analyze* Parser=new File_Unknown();
+        Open_Buffer_Init(Parser);
+        Parser->Stream_Prepare(Stream_Audio);
+        Parser->Fill(Stream_Audio, 0, Audio_Format, "AAC");
+        Parser->Fill(Stream_Audio, 0, Audio_MuxingMode, "ADTS");
+    #endif
+    Essence->second.Parsers.push_back(Parser);
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ChooseParser_Latm(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
+{
+    Essence->second.StreamKind=Stream_Audio;
+
+    //Filling
+    #if defined(MEDIAINFO_AAC_YES)
+        File_Aac* Parser=new File_Aac;
+        Parser->Mode=File_Aac::Mode_LATM;
+    #else
+        //Filling
+        File__Analyze* Parser=new File_Unknown();
+        Open_Buffer_Init(Parser);
+        Parser->Stream_Prepare(Stream_Audio);
+        Parser->Fill(Stream_Audio, 0, Audio_Format, "AAC");
+        Parser->Fill(Stream_Audio, 0, Audio_MuxingMode, "LATM");
     #endif
     Essence->second.Parsers.push_back(Parser);
 }
@@ -17378,9 +15181,9 @@ void File_Mxf::ChooseParser_SmpteSt0337(const essences::iterator &Essence, const
         if (Descriptor!=Descriptors.end())
         {
             if (Descriptor->second.BlockAlign<64)
-                Parser->Container_Bits=(int8u)(Descriptor->second.BlockAlign*4);
+                Parser->BitDepth=(int8u)(Descriptor->second.BlockAlign*4);
             else if (Descriptor->second.QuantizationBits!=(int32u)-1)
-                Parser->Container_Bits=(int8u)Descriptor->second.QuantizationBits;
+                Parser->BitDepth=(int8u)Descriptor->second.QuantizationBits;
             std::map<std::string, Ztring>::const_iterator i=Descriptor->second.Infos.find("Format_Settings_Endianness");
             if (i!=Descriptor->second.Infos.end())
             {
@@ -17419,7 +15222,8 @@ void File_Mxf::ChooseParser_Jpeg2000(const essences::iterator &Essence, const de
         Parser->StreamKind=Stream_Video;
         if (Descriptor!=Descriptors.end())
         {
-            Parser->Interlaced=Descriptor->second.Is_Interlaced();
+            Parser->Interlaced=Descriptor->second.Is_Interlaced() || Descriptor->second.Jp2kContentKind==4;
+            Parser->MxfContentKind=Descriptor->second.Jp2kContentKind;
             #if MEDIAINFO_DEMUX
                 if (Parser->Interlaced)
                 {
@@ -17458,15 +15262,278 @@ void File_Mxf::ChooseParser_ProRes(const essences::iterator &Essence, const desc
 }
 
 //---------------------------------------------------------------------------
-void File_Mxf::ChooseParser_DolbyVisionFrameData(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
+void File_Mxf::ChooseParser_Ffv1(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
 {
-    Essence->second.StreamKind=Stream_Other;
+    Essence->second.StreamKind=Stream_Video;
 
     //Filling
-    File__Analyze* Parser=new File_Unknown();
-    Open_Buffer_Init(Parser);
-    Parser->Stream_Prepare(Stream_Other);
-    Parser->Fill(Stream_Other, 0, Other_Format, "Dolby Vision Metadata");
+    #if defined(MEDIAINFO_FFV1_YES)
+        File__Analyze* Parser=NULL;
+        if (Descriptor!=Descriptors.end())
+        {
+            if (Descriptor->second.Parser)
+            {
+                Essence->second.Parsers.push_back(Descriptor->second.Parser);
+                Descriptor->second.Parser=NULL;
+            }
+            else
+            {
+                for (size_t i=0; i<Descriptor->second.SubDescriptors.size(); i++)
+                {
+                    descriptors::iterator Sub=Descriptors.find(Descriptor->second.SubDescriptors[i]);
+                    if (Sub!=Descriptors.end() && Sub->second.Parser)
+                    {
+                        Essence->second.Parsers.push_back(Sub->second.Parser);
+                        Sub->second.Parser=NULL;
+                    }
+                }
+            }
+        }
+        if (Essence->second.Parsers.empty())
+            Essence->second.Parsers.push_back(new File_Ffv1);
+        for (size_t i=0; i<Essence->second.Parsers.size(); i++)
+        {
+            File_Ffv1* Parser=(File_Ffv1*)Essence->second.Parsers[i]; // TODO
+            if (Descriptor!=Descriptors.end())
+            {
+                Parser->Width=Descriptor->second.Width;
+                Parser->Height=Descriptor->second.Height;
+            }
+            else
+            {
+                Parser->Width=0;
+                Parser->Height=0;
+            }
+        }
+    #else
+        //Filling
+        File__Analyze* Parser=new File_Unknown();
+        Open_Buffer_Init(Parser);
+        Parser->Stream_Prepare(Stream_Video);
+        Parser->Fill(Stream_Video, 0, Video_Format, "FFV1");
+        Essence->second.Parsers.push_back(Parser);
+    #endif
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ChooseParser_Isxd(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
+{
+    Essence->second.StreamKind=Stream_Other;
+    Essence->second.Infos["MuxingMode"]="ISXD";
+    Essence->second.Infos["MuxingMode_MoreInfo"]="Contains additional metadata for other tracks";
+
+    //Filling
+    ChooseParser_DolbyVisionFrameData(Essence, Descriptor);
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ChooseParser_Phdr(const essences::iterator& Essence, const descriptors::iterator& Descriptor)
+{
+    Essence->second.StreamKind = Stream_Other;
+    Essence->second.Infos["MuxingMode"] = "PHDR";
+    Essence->second.Infos["MuxingMode_MoreInfo"] = "Contains additional metadata for other tracks";
+
+    //Filling
+    ChooseParser_DolbyVisionFrameData(Essence, Descriptor);
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ChooseParser_HdrVivid(const essences::iterator& Essence, const descriptors::iterator& Descriptor)
+{
+    Essence->second.StreamKind = Stream_Other;
+    Essence->second.Infos["MuxingMode_MoreInfo"] = "Contains additional metadata for other tracks";
+
+    //Filling
+    #if 1 // TODO
+        File_HdrVividMetadata* Parser=new File_HdrVividMetadata;
+    #else
+        //Filling
+        File__Analyze* Parser=new File_Unknown();
+        Open_Buffer_Init(Parser);
+        Parser->Stream_Prepare(Stream_Other);
+        Parser->Fill(Stream_Other, 0, Other_Format, "HDR Vivid Metadata");
+    #endif
+    Essence->second.Parsers.push_back(Parser);
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ChooseParser_DolbyVisionFrameData(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
+{
+    //Filling
+    #if 1 // TODO
+        File_DolbyVisionMetadata* Parser=new File_DolbyVisionMetadata;
+    #else
+        //Filling
+        File__Analyze* Parser=new File_Unknown();
+        Open_Buffer_Init(Parser);
+        Parser->Stream_Prepare(Stream_Other);
+        Parser->Fill(Stream_Other, 0, Other_Format, "Dolby Vision Metadata");
+    #endif
+    Essence->second.Parsers.push_back(Parser);
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ChooseParser_Iab(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
+{
+    Essence->second.StreamKind=Stream_Audio;
+
+    //Filling
+    #if defined(MEDIAINFO_IAB_YES)
+        File_Iab* Parser=new File_Iab;
+    #else
+        //Filling
+        File__Analyze* Parser=new File_Unknown();
+        Open_Buffer_Init(Parser);
+        Parser->Stream_Prepare(Stream_Audio);
+        Parser->Fill(Stream_Audio, 0, Audio_Format, "IAB");
+    #endif
+    Essence->second.Parsers.push_back(Parser);
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ChooseParser_Mga(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
+{
+    Essence->second.StreamKind=Stream_Audio;
+
+    //Filling
+    #if defined(MEDIAINFO_MGA_YES)
+        File_Mga* Parser=new File_Mga;
+    #else
+        //Filling
+        File__Analyze* Parser=new File_Unknown();
+        Open_Buffer_Init(Parser);
+        Parser->Stream_Prepare(Stream_Audio);
+        Parser->Fill(Stream_Audio, 0, Audio_Format, "MGA");
+    #endif
+    Essence->second.Parsers.push_back(Parser);
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ChooseParser_Mxf(const essences::iterator& Essence, const descriptors::iterator& Descriptor)
+{
+    if (!IsSub)
+        Essence->second.Parsers.push_back(new File_Mxf());
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ChooseParser_Vc1(const essences::iterator& Essence, const descriptors::iterator& Descriptor)
+{
+    Essence->second.StreamKind=Stream_Video;
+
+    //Filling
+    #if defined(MEDIAINFO_VC1_YES)
+        File_Vc1* Parser=new File_Vc1;
+    #else
+        //Filling
+        File__Analyze* Parser=new File_Unknown();
+        Open_Buffer_Init(Parser);
+        Parser->Stream_Prepare(Stream_Video);
+        Parser->Fill(Stream_Video, 0, Video_Format, "VC-1");
+    #endif
+    Essence->second.Parsers.push_back(Parser);
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ChooseParser_Vbi(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
+{
+    //Filling
+    #if defined(MEDIAINFO_VBI_YES)
+        File_Vbi* Parser=new File_Vbi;
+        MayHaveCaptionsInStream=true;
+    #else
+        //Filling
+        File__Analyze* Parser=new File_Unknown();
+        Open_Buffer_Init(Parser);
+        Parser->Stream_Prepare(Stream_Other);
+        Parser->Fill(Stream_Video, 0, Other_MuxingMode, "VBI");
+    #endif
+    Essence->second.Parsers.push_back(Parser);
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ChooseParser_Ancillary(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
+{
+    //Filling
+    #if defined(MEDIAINFO_ANCILLARY_YES)
+        if (!Ancillary)
+            Ancillary=new File_Ancillary;
+        File__Analyze* Parser=Ancillary;
+        MayHaveCaptionsInStream=true;
+    #else
+        //Filling
+        File__Analyze* Parser=new File_Unknown();
+        Open_Buffer_Init(Parser);
+        Parser->Stream_Prepare(Stream_Other);
+        Parser->Fill(Stream_Video, 0, Other_MuxingMode, "Ancillary data");
+    #endif
+    Essence->second.Parsers.push_back(Parser);
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ChooseParser_xAnc(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
+{
+    //Filling
+    #if 0
+    #else
+        //Filling
+        File__Analyze* Parser=new File_Unknown();
+        Open_Buffer_Init(Parser);
+        Parser->Stream_Prepare(Stream_Other);
+        Parser->Fill(Stream_Video, 0, Other_MuxingMode, "xANC");
+    #endif
+    Essence->second.Parsers.push_back(Parser);
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ChooseParser_Hdcam(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
+{
+    Essence->second.StreamKind=Stream_Video;
+
+    //Filling
+    #if 0
+    #else
+        //Filling
+        File__Analyze* Parser=new File_Unknown();
+        Open_Buffer_Init(Parser);
+        Parser->Stream_Prepare(Stream_Video);
+        Parser->Fill(Stream_Video, 0, Video_Format, "HDCAM");
+    #endif
+    Essence->second.Parsers.push_back(Parser);
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ChooseParser_Hevc(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
+{
+    Essence->second.StreamKind=Stream_Video;
+
+    //Filling
+    #if defined(MEDIAINFO_HEVC_YES)
+        File_Hevc* Parser=new File_Hevc;
+        MayHaveCaptionsInStream=true;
+    #else
+        //Filling
+        File__Analyze* Parser=new File_Unknown();
+        Open_Buffer_Init(Parser);
+        Parser->Stream_Prepare(Stream_Video);
+        Parser->Fill(Stream_Video, 0, Video_Format, "HEVC");
+    #endif
+    Essence->second.Parsers.push_back(Parser);
+}
+
+//---------------------------------------------------------------------------
+void File_Mxf::ChooseParser_JpegXs(const essences::iterator &Essence, const descriptors::iterator &Descriptor)
+{
+    Essence->second.StreamKind=Stream_Video;
+
+    //Filling
+    #if 0
+    #else
+        //Filling
+        File__Analyze* Parser=new File_Unknown();
+        Open_Buffer_Init(Parser);
+        Parser->Stream_Prepare(Stream_Video);
+        Parser->Fill(Stream_Video, 0, Video_Format, "JPEG XS");
+    #endif
     Essence->second.Parsers.push_back(Parser);
 }
 
@@ -17477,7 +15544,7 @@ void File_Mxf::ChooseParser_DolbyVisionFrameData(const essences::iterator &Essen
 //---------------------------------------------------------------------------
 int32u File_Mxf::Vector(int32u ExpectedLength)
 {
-    if (Element_Offset+8>Element_Size)
+    if (Element_Size-Element_Offset<8)
     {
         Element_Error("Incoherent element size");
         return (int32u)-1;
@@ -17487,7 +15554,7 @@ int32u File_Mxf::Vector(int32u ExpectedLength)
     Get_B4 (Count,                                              "Count");
     Get_B4 (Length,                                             "Length");
 
-    if (Count*Length!=Element_Size-Element_Offset)
+    if (Count*Length>Element_Size-Element_Offset)
     {
         Param_Error("Incoherent Count*Length");
         return (int32u)-1;
@@ -17499,7 +15566,7 @@ int32u File_Mxf::Vector(int32u ExpectedLength)
         return (int32u)-1;
     }
 
-    return Length;
+    return Count;
 }
 
 //---------------------------------------------------------------------------
@@ -17649,19 +15716,19 @@ void File_Mxf::Locators_Test()
                 if (Sequence->StreamID!=(int32u)-1)
                 {
                     //Descriptive Metadata
-                    std::vector<int128u> DMScheme1s_List;
+                    std::vector<int128u> ProductionFrameworks_List;
 
-                    for (dmsegments::iterator DMSegment=DMSegments.begin(); DMSegment!=DMSegments.end(); ++DMSegment)
-                        for (size_t Pos=0; Pos<DMSegment->second.TrackIDs.size(); Pos++)
-                            if (DMSegment->second.TrackIDs[Pos]==Sequence->StreamID)
-                                DMScheme1s_List.push_back(DMSegment->second.Framework);
+                    for (dmsegments::iterator DescriptiveMarker=DescriptiveMarkers.begin(); DescriptiveMarker!=DescriptiveMarkers.end(); ++DescriptiveMarker)
+                        for (size_t Pos=0; Pos<DescriptiveMarker->second.TrackIDs.size(); Pos++)
+                            if (DescriptiveMarker->second.TrackIDs[Pos]==Sequence->StreamID)
+                                ProductionFrameworks_List.push_back(DescriptiveMarker->second.Framework);
 
-                    for (size_t Pos=0; Pos<DMScheme1s_List.size(); Pos++)
+                    for (size_t Pos=0; Pos<ProductionFrameworks_List.size(); Pos++)
                     {
-                        dmscheme1s::iterator DMScheme1=DMScheme1s.find(DMScheme1s_List[Pos]);
-                        if (DMScheme1!=DMScheme1s.end())
+                        dmscheme1s::iterator ProductionFramework=ProductionFrameworks.find(ProductionFrameworks_List[Pos]);
+                        if (ProductionFramework!=ProductionFrameworks.end())
                         {
-                            Sequence->Infos["Language"]=DMScheme1->second.PrimaryExtendedSpokenLanguage;
+                            Sequence->Infos["Language"]=ProductionFramework->second.PrimaryExtendedSpokenLanguage;
                         }
                     }
                 }
@@ -17717,14 +15784,103 @@ bool File_Mxf::BookMark_Needed()
 {
     Frame_Count_NotParsedIncluded=(int64u)-1;
 
-    if (MayHaveCaptionsInStream && !IsSub && IsParsingEnd && File_Size!=(int64u)-1 && Config->ParseSpeed && Config->ParseSpeed<1 && IsParsingMiddle_MaxOffset==(int64u)-1 && File_Size/2>0x4000000) //TODO: 64 MB by default; // Do not search in the middle of the file if quick pass or full pass
+    if (MayHaveCaptionsInStream && !IsSub && IsParsingEnd && IsParsingMiddle_MaxOffset==(int64u)-1)
     {
-        IsParsingMiddle_MaxOffset=File_Size/2+0x4000000; //TODO: 64 MB by default;
-        GoTo(File_Size/2);
-        Open_Buffer_Unsynch();
-        IsParsingEnd=false;
-        IsCheckingRandomAccessTable=false;
-        Streams_Count=(size_t)-1;
+        int64u ProbeCaptionBytePos=(int64u)-1;
+        int64u ProbeCaptionByteDur=(int64u)-1;
+        float32 Duration=0;
+        for (size_t StreamKind=Stream_General; StreamKind<Stream_Max; StreamKind++)
+        {
+            auto Count=Count_Get((stream_t)StreamKind);
+            for (size_t StreamPos=0; StreamPos<Count; StreamPos++)
+            {
+                Duration=Retrieve_Const((stream_t)StreamKind, StreamPos, Fill_Parameter((stream_t)StreamKind, Generic_Duration)).To_int64u()/1000.0;
+                if (Duration)
+                    break;
+            }
+            if (Duration)
+                break;
+        }
+        if (!Duration)
+        {
+            for (const auto& Track : Tracks)
+            {
+                if (!Track.second.EditRate)
+                    continue;
+                const auto& Component=Components.find(Track.second.Sequence);
+                if (Component!=Components.end())
+                {
+                    if (Component->second.Duration && Component->second.Duration!=(int64u)-1)
+                        Duration=Component->second.Duration/Track.second.EditRate;
+                }
+            }
+        }
+        auto Probe=Config->File_ProbeCaption_Get(ParserName);
+        int64u HeaderSize=0;
+        int64u ContentSize=File_Size;
+        if (!Partitions.empty())
+        {
+            const auto& FirstPartition=Partitions.front();
+            HeaderSize=FirstPartition.PartitionPackByteCount+FirstPartition.HeaderByteCount+FirstPartition.IndexByteCount;
+            ContentSize-=HeaderSize;
+            const auto& LastPartition=Partitions.back();
+            if (LastPartition.StreamOffset==FirstPartition.FooterPartition)
+            {
+                 int64u FooterSize=File_Size-LastPartition.StreamOffset;
+                 ContentSize-=FooterSize;
+            }
+        }
+        switch (Probe.Start_Type)
+        {
+            case config_probe_none:
+                ProbeCaptionBytePos=0;
+                break;
+            case config_probe_size:
+                ProbeCaptionBytePos=Probe.Start;
+                break;
+            case config_probe_dur:
+                if (Duration)
+                {
+                    ProbeCaptionBytePos=HeaderSize+(float32)Probe.Start/Duration*ContentSize; //TODO: real timestamp
+                }
+                else
+                    ProbeCaptionBytePos=HeaderSize+ContentSize/2;
+                break;
+            case config_probe_percent:
+                ProbeCaptionBytePos=HeaderSize+ContentSize/100*Probe.Start;
+                break;
+            default:;
+        }
+        switch (Probe.Duration_Type) {
+            case config_probe_none:
+                ProbeCaptionByteDur=ContentSize;
+                break;
+            case config_probe_size:
+                ProbeCaptionByteDur=Probe.Duration;
+                break;
+            case config_probe_dur:
+                if (Duration)
+                {
+                    ProbeCaptionByteDur=(float32)Probe.Duration/Duration*ContentSize; //TODO: real timestamp
+                }
+                else
+                    ProbeCaptionByteDur=ContentSize/100;
+                break;
+            case config_probe_percent:
+                ProbeCaptionByteDur=ContentSize/100*Probe.Duration;
+                break;
+        }
+        auto MaxOffset=ProbeCaptionBytePos+ProbeCaptionByteDur;
+        auto CurrentEnd=File_Offset+Buffer_Offset;
+        if (ProbeCaptionBytePos!=(int64u)-1 && ProbeCaptionByteDur!=(int64u)-1 && File_Size/2>ProbeCaptionByteDur)
+        {
+            IsParsingMiddle_MaxOffset=MaxOffset;
+            GoTo(ProbeCaptionBytePos);
+            Open_Buffer_Unsynch();
+            IsParsingEnd=false;
+            IsCheckingRandomAccessTable=false;
+            Streams_Count=(size_t)-1;
+        }
     }
 
     if (ExtraMetadata_Offset!=(int64u)-1)

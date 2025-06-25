@@ -44,10 +44,10 @@ static const char*  Opus_ChannelPositions[Opus_ChannelLayout_Max]=
     "Front: L R",
     "Front: L C R",
     "Front: L R,   Rear: L R",
-    "Front: L C R, Rear: L R",
-    "Front: L C R, Rear: L R, LFE",
-    "Front: L C R, Side: L R, Rear: C, LFE",
-    "Front: L C R, Side: L R, Rear: L R, LFE",
+    "Front: L C R, Back: L R",
+    "Front: L C R, Back: L R, LFE",
+    "Front: L C R, Side: L R, Back: C, LFE",
+    "Front: L C R, Side: L R, Back: L R, LFE",
 };
 
 //---------------------------------------------------------------------------
@@ -66,7 +66,7 @@ static const char*  Opus_ChannelPositions2[Opus_ChannelLayout_Max]=
 //---------------------------------------------------------------------------
 static const char*  Opus_ChannelLayout[Opus_ChannelLayout_Max]=
 {
-    "C",
+    "M",
     "L R",
     "L R C",
     "L R BL BR",
@@ -160,7 +160,7 @@ void File_Opus::Identification()
             case 0 : // Mono/Stereo
                     if (ch_count>2)
                         break; // Not in spec
-                    // else it is as Vorbis specs, no break
+                    [[fallthrough]]; // else it is as Vorbis specs, no break
             case 1 : // Vorbis order
                     if (ch_count && ch_count<=Opus_ChannelLayout_Max)
                     {
@@ -174,6 +174,7 @@ void File_Opus::Identification()
                     if (ChannelLayout2!=Retrieve(Stream_Audio, 0, Audio_ChannelLayout))
                         Fill(Stream_Audio, 0, Audio_ChannelLayout, ChannelLayout2);
                     }
+                    break;
             default: ; //Unknown
         }
 

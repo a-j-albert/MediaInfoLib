@@ -56,6 +56,33 @@
     #include "ZenLib/FileName.h"
     #include <cstring>
 #endif //MEDIAINFO_DEBUG_BUFFER
+#if MEDIAINFO_ADVANCED
+    #include <iostream>
+    #if defined(WINDOWS) && !defined(WINDOWS_UWP) && !defined(__BORLANDC__)
+        #include <fcntl.h>
+        #include <io.h>
+    #endif //defined(WINDOWS) && !defined(WINDOWS_UWP) && !defined(__BORLANDC__)
+#endif //MEDIAINFO_ADVANCED
+#if MEDIAINFO_ADVANCED && defined(MEDIAINFO_FILE_YES)
+    #include <limits>
+    #ifdef WINDOWS
+        #ifndef WIN32_LEAN_AND_MEAN
+            #define WIN32_LEAN_AND_MEAN
+        #endif
+        #ifndef NOMINMAX
+            #define NOMINMAX
+        #endif
+        #include <windows.h>
+        #undef Yield
+    #else
+        #include <unistd.h>
+        #include <signal.h>
+        #if defined(_POSIX_PRIORITY_SCHEDULING) // Note: unistd.h must be included first
+            #include <sched.h>
+        #endif //_POSIX_PRIORITY_SCHEDULING
+    #endif
+    #include <ctime>
+#endif
 using namespace ZenLib;
 using namespace std;
 //---------------------------------------------------------------------------
@@ -277,12 +304,12 @@ extern const Char* MediaInfo_Version;
 //***************************************************************************
 // Modifiers - ChannelLayout_2018
 //***************************************************************************
-static const size_t ChannelLayout_2018_Size=63;
-static const char* ChannelLayout_2018[ChannelLayout_2018_Size][2] =
+static const char* ChannelLayout_2018[][2] =
 {
     { "BC", "Cb" },
     { "BL", "Lb" },
     { "BR", "Rb" },
+    { "BS", "Rb" },
     { "CI", "Bfc" },
     { "CL", "Ls" },
     { "CR", "Rs" },
@@ -295,13 +322,14 @@ static const char* ChannelLayout_2018[ChannelLayout_2018_Size][2] =
     { "Cvr", "Tbc" },
     { "FC", "C" },
     { "FL", "L" },
-    { "FLC", "Lscr" },
+    { "FLC", "Lc" },
     { "FR", "R" },
-    { "FRC", "Rscr" },
+    { "FRC", "Rc" },
+    { "LC", "Lc" },
     { "LI", "Bfl" },
-    { "Lc", "Lscr" },
+    { "LS", "Ls" },
     { "Lfh", "Tfl" },
-    { "Lh", "Vhl" },
+    { "Lh", "Tfl" },
     { "Lhr", "Tbl" },
     { "Lhs", "Tfl" },
     { "Lrh", "Tbl" },
@@ -313,14 +341,16 @@ static const char* ChannelLayout_2018[ChannelLayout_2018_Size][2] =
     { "Lv", "Tfl" },
     { "Lvh", "Tfl" },
     { "Lvr", "Tbl" },
-    { "Lvss", "Tll" },
+    { "Lvss", "Tsl" },
     { "Oh", "Tc" },
-    { "Rc", "Rscr" },
     { "Rfh", "Tfrr" },
-    { "Rh", "Vhr" },
+    { "Rh", "Tfr" },
     { "Rhr", "Tbr" },
     { "Rhs", "Tfr" },
+    { "RC", "Rc" },
     { "RI", "Bfr" },
+    { "RS", "Rs" },
+    { "Rls", "Lb" },
     { "Rrh", "Tbr" },
     { "Rrs", "Rb" },
     { "Rsc", "Rscr" },
@@ -334,6 +364,7 @@ static const char* ChannelLayout_2018[ChannelLayout_2018_Size][2] =
     { "S", "Cb" },
     { "SL", "Ls" },
     { "SR", "Rs" },
+    { "SW", "LFE" },
     { "TBC", "Tbc" },
     { "TBL", "Tbl" },
     { "TBR", "Tbr" },
@@ -344,13 +375,19 @@ static const char* ChannelLayout_2018[ChannelLayout_2018_Size][2] =
     { "Ts", "Tc" },
     { "Vhc", "Tfc" },
 };
-static const size_t ChannelLayout_2018_Aac_Size=3;
-static const char* ChannelLayout_2018_Aac[ChannelLayout_2018_Aac_Size][2] =
+static const size_t ChannelLayout_2018_Size=sizeof(ChannelLayout_2018)/sizeof(decltype(*ChannelLayout_2018));
+static const char* ChannelLayout_2018_Aac[][2] =
 {
     { "Cb", "Bfc" },
     { "Lb", "Bfl" },
     { "Rb", "Bfr" },
+    // Found in DTS-UHD, similar to AAC for channels above + theses additions
+    { "Ltf", "Tfl" }, // Merged with Lh ("top" vs "high")
+    { "Rtf", "Tfr" }, // Merged with Rh ("top" vs "high")
+    { "Ltr", "Tbl" }, // Merged with Lhr ("top" vs "high")
+    { "Rtr", "Tbr" }, // Merged with Rhr ("top" vs "high")
 };
+static const size_t ChannelLayout_2018_Aac_Size=sizeof(ChannelLayout_2018_Aac)/sizeof(decltype(*ChannelLayout_2018_Aac));
 Ztring ChannelLayout_2018_Rename(const Ztring& Channels, const Ztring& Format)
 {
     ZtringList List;
@@ -358,7 +395,7 @@ Ztring ChannelLayout_2018_Rename(const Ztring& Channels, const Ztring& Format)
     List.Write(Channels);
     size_t LfePos[3];
     memset(LfePos, -1, sizeof(LfePos));
-    bool IsAac=(Format==__T("USAC") || Format==__T("MPEG-H 3D Audio"));
+    bool IsAac=(Format==__T("AAC") || Format==__T("USAC") || Format==__T("MPEG-H 3D Audio") || Format==__T("DTS-UHD"));
     for (size_t i=0; i<List.size(); i++)
     {
         Ztring& ChannelName=List[i];
@@ -399,7 +436,9 @@ Ztring ChannelLayout_2018_Rename(stream_t StreamKind, size_t Parameter, ZtringLi
         case Stream_Audio:
             switch (Parameter)
             {
-                case Audio_ChannelLayout: return ChannelLayout_2018_Rename(Info[Parameter], StreamFormat);
+                case Audio_ChannelLayout:
+                case Audio_ChannelLayout_Original:
+                    return ChannelLayout_2018_Rename(Info[Parameter], StreamFormat);
                 default:;
             }
             break;
@@ -408,7 +447,7 @@ Ztring ChannelLayout_2018_Rename(stream_t StreamKind, size_t Parameter, ZtringLi
     ShouldReturn=ShouldReturn_Save;
     return Info[Parameter];
 }
-Ztring ChannelLayout_2018_Rename(stream_t StreamKind, const Ztring& Parameter, const Ztring& Value, const Ztring& StreamFormat, bool &ShouldReturn)
+Ztring ChannelLayout_2018_Rename(stream_t StreamKind, const Ztring Parameter, const Ztring Value, const Ztring StreamFormat, bool &ShouldReturn)
 {
     bool ShouldReturn_Save=ShouldReturn;
     ShouldReturn=true;
@@ -514,7 +553,6 @@ Ztring HighestFormat(stream_t StreamKind, size_t Parameter, const ZtringList& In
         return Ztring();
 
     static const Char* _16ch =__T("16-ch");
-    static const Char* _9624=__T("96/24");
     static const Char* Bluray=__T("Blu-ray Disc");
     static const Char* AC3=__T("AC-3");
     static const Char* EAC3=__T("E-AC-3");
@@ -540,12 +578,15 @@ Ztring HighestFormat(stream_t StreamKind, size_t Parameter, const ZtringList& In
     static const Char* Express=__T("Express");
     static const Char* HEAACv2 = __T("HE-AACv2");
     static const Char* HEAAC = __T("HE-AAC");
-    static const Char* HRA=__T("HRA");
+    static const Char* HEAAC_ESBR = __T("HE-AAC+eSBR");
     static const Char* JOC=__T("JOC");
     static const Char* LC=__T("LC");
     static const Char* LCSBR=__T("LC SBR");
     static const Char* LCSBRPS=__T("LC SBR PS");
+    static const Char* LCESBR=__T("LC SBR eSBR");
     static const Char* LTP=__T("LTP");
+    static const Char* X=__T("X");
+    static const Char* IMAX=__T("IMAX");
     static const Char* MA=__T("MA");
     static const Char* Main=__T("Main");
     static const Char* MLP=__T("MLP");
@@ -553,6 +594,13 @@ Ztring HighestFormat(stream_t StreamKind, size_t Parameter, const ZtringList& In
     static const Char* NonCore=__T("non-core");
     static const Char* Scalable=__T("scalable");
     static const Char* SSR=__T("SSR");
+    static const Char* XBR=__T("XBR");
+    static const Char* XCh=__T("XCh");
+    static const Char* XCH=__T("XCH");
+    static const Char* XXCh=__T("XXCh");
+    static const Char* XXCH=__T("XXCH");
+    static const Char* X96=__T("X96");
+    static const Char* x96=__T("x96");
 
     ShouldReturn=true; 
     switch (Parameter_Generic)
@@ -620,6 +668,8 @@ Ztring HighestFormat(stream_t StreamKind, size_t Parameter, const ZtringList& In
                 const Ztring& Profile=Info[Parameter_Format_Profile];
                 if (Profile.find(HEAACv2)!=string::npos)
                     return LCSBRPS;
+                if (Profile.find(HEAAC_ESBR)!=string::npos)
+                    return LCESBR;
                 if (Profile.find(HEAAC)!=string::npos)
                     return LCSBR;
                 if (Profile.find(LC)!=string::npos)
@@ -643,16 +693,12 @@ Ztring HighestFormat(stream_t StreamKind, size_t Parameter, const ZtringList& In
                     {
                         if (!AdditionalFeatures.empty())
                             AdditionalFeatures+=__T(' ');
-                             if (Profiles[i]==_9624)
-                            AdditionalFeatures+=_9624;
-                        else if (Profiles[i]==Discrete)
-                            AdditionalFeatures+=__T("XXCH");
-                        else if (Profiles[i]==ESDiscrete)
-                            AdditionalFeatures+=__T("ES XXCH");
-                        else if (Profiles[i]==ESMatrix)
+                             if (Profiles[i]==ESMatrix)
                             AdditionalFeatures+=__T("ES");
-                        else if (Profiles[i]==HRA)
-                            AdditionalFeatures+=__T("XBR");
+                        else if (Profiles[i]==Discrete)
+                            AdditionalFeatures+=__T("XCh");
+                        else if (Profiles[i]==ESDiscrete)
+                            AdditionalFeatures+=__T("XCh");
                         else if (Profiles[i]==MA)
                             AdditionalFeatures+=__T("XLL");
                         else
@@ -723,7 +769,12 @@ Ztring HighestFormat(stream_t StreamKind, size_t Parameter, const ZtringList& In
                 if (Profile.find(HEAACv2)!=string::npos)
                     return "Advanced Audio Codec Low Complexity with Spectral Band Replication and Parametric Stereo";
                 if (Profile.find(HEAAC)!=string::npos)
-                    return "Advanced Audio Codec Low Complexity with Spectral Band Replication";
+                {
+                    if (Profile.find(__T("eSBR"))!=string::npos)
+                        return "Advanced Audio Codec Low Complexity with Enhanced Spectral Band Replication";
+                    else
+                        return "Advanced Audio Codec Low Complexity with Spectral Band Replication";
+                }
                 if (Profile.find(LC)!=string::npos)
                     return "Advanced Audio Codec Low Complexity";
             }
@@ -762,6 +813,8 @@ Ztring HighestFormat(stream_t StreamKind, size_t Parameter, const ZtringList& In
             if (Info[Parameter_Format]==AAC)
             {
                 const Ztring& Profile=Info[Parameter_Format_Profile];
+                if (Profile.find(HEAAC_ESBR)!=string::npos)
+                    return "HE-AAC eSBR";
                 if (Profile.find(HEAACv2)!=string::npos)
                     return "HE-AACv2";
                 if (Profile.find(HEAAC)!=string::npos)
@@ -769,19 +822,55 @@ Ztring HighestFormat(stream_t StreamKind, size_t Parameter, const ZtringList& In
             }
             if (Info[Parameter_Format]==DTS)
             {
-                const Ztring& Profile=Info[Parameter_Format_Profile];
-                if (Profile.find(MA)!=string::npos)
-                    return "DTS-HD Master Audio";
-                if (Profile.find(HRA)!=string::npos)
-                    return "DTS-HD High Resolution Audio";
-                if (Profile.find(_9624)!=string::npos)
-                    return "DTS 96/24";
-                if (Profile.find(ESDiscrete)!=string::npos)
-                    return "DTS-ES Discrete";
-                if (Profile.find(ESMatrix)!=string::npos)
-                    return "DTS-ES Matrix";
-                if (Profile.find(Express)!=string::npos)
-                    return "DTS Express";
+                ZtringList Profiles;
+                Profiles.Separator_Set(0, __T(" / "));
+                Profiles.Write(Info[Parameter_Format_Profile]);
+                const char* Value=nullptr;
+                bool HasHRA=false, HasXLL=false;
+                for (size_t i=Profiles.size()-1; i!=(size_t)-1; i--)
+                {
+                    const auto& Profile=Profiles[i];
+                         if (Profile==Core)
+                        ;
+                    else if (Profile==ESMatrix)
+                        Value="DTS-ES";
+                    else if (Profile==ESDiscrete)
+                        Value="DTS-ES Discrete";
+                    else if (Profile==x96)
+                        Value="DTS 96/24";
+                    else if (Profile==X96 || Profile==XBR || Profile==XXCH)
+                    {
+                        Value="DTS-HD High Resolution Audio";
+                        HasHRA=true;
+                    }
+                    else if (Profile==MA)
+                    {
+                         Value="DTS-HD Master Audio";
+                         HasXLL=true;
+                    }
+                    else if (Profile==Express)
+                        Value="DTS Express";
+                    else if (Profile==X)
+                    {
+                        if (HasXLL)
+                            Value="DTS-HD MA + DTS:X";
+                        else if (HasHRA)
+                            Value="DTS-HD HRA + DTS:X";
+                        else
+                            Value="DTS:X";
+                    }
+                    else if (Profile==IMAX)
+                    {
+                        if (HasXLL)
+                            Value="DTS-HD MA + IMAX Enhanced";
+                        else if (HasHRA)
+                            Value="DTS-HD HRA + IMAX Enhanced";
+                        else
+                            Value="IMAX Enhanced";
+                    }
+                }
+                if (Value)
+                    return Value;
             }
             break;
         default:;
@@ -809,6 +898,166 @@ static stream_t Text2StreamT(const Ztring& ParameterName, size_t ToRemove)
         StreamKind2=Stream_Menu;
     return StreamKind2;
 }
+
+//***************************************************************************
+// std::cin threaded interface
+//***************************************************************************
+
+#if MEDIAINFO_ADVANCED && defined(MEDIAINFO_FILE_YES) && !defined(WINDOWS_UWP) && !defined(__BORLANDC__)
+class Reader_Cin_Thread;
+set<Reader_Cin_Thread*> ToTerminate;
+CriticalSection ToTerminate_CS;
+
+static void CtrlC_Register();
+static void CtrlC_Unregister();
+
+static void Reader_Cin_Add(Reader_Cin_Thread* Thread)
+{
+    CriticalSectionLocker ToTerminate_CSL(ToTerminate_CS);
+    if (ToTerminate.empty() && MediaInfoLib::Config.AcceptSignals_Get())
+        CtrlC_Register();
+    ToTerminate.insert(Thread);
+}
+
+static void Reader_Cin_Remove(Reader_Cin_Thread* Thread)
+{
+    CriticalSectionLocker ToTerminate_CSL(ToTerminate_CS);
+    ToTerminate.erase(Thread);
+    if (ToTerminate.empty() && MediaInfoLib::Config.AcceptSignals_Get())
+        CtrlC_Unregister();
+}
+
+class Reader_Cin_Thread : public Thread
+{
+public:
+    int8u* Buffer[2];
+    size_t Buffer_Size[2];
+    size_t Buffer_MaxSize;
+    bool   Buffer_Filling;
+    bool   Buffer_Used;
+
+    Reader_Cin_Thread()
+    {
+        Buffer_MaxSize=64*1024;
+        Buffer[0]=new int8u[Buffer_MaxSize];
+        Buffer[1]=new int8u[Buffer_MaxSize];
+        Buffer_Size[0]=0;
+        Buffer_Size[1]=0;
+        Buffer_Filling=false;
+        Buffer_Used=false;
+        Reader_Cin_Add(this);
+    }
+
+    ~Reader_Cin_Thread()
+    {
+        Reader_Cin_Remove(this);
+    }
+
+    void Current(int8u*& Buffer_New, size_t& Buffer_Size_New)
+    {
+        //If the current buffer is full
+        Buffer_New=Buffer[Buffer_Used];
+        Buffer_Size_New=Buffer_Size[Buffer_Used];
+        if (Buffer_Size_New==Buffer_MaxSize)
+            return;
+
+        //Not full, we accept it only if read is finished
+        if (IsRunning())
+            Buffer_Size_New=0;
+    }
+
+    void IsManaged()
+    {
+        Buffer_Size[Buffer_Used]=0;
+        Buffer_Used=!Buffer_Used;
+    }
+
+    void Entry()
+    {
+        while (!IsTerminating() && !IsExited())
+        {
+            if (Buffer_Size[Buffer_Filling]==Buffer_MaxSize) //If end of buffer is reached
+            {
+                Buffer_Filling=!Buffer_Filling;
+                while (Buffer_Size[Buffer_Filling]) //Wait for first byte free
+                    Yield(); //TODO: use condition_variable
+                continue; //Check again the condition before next step
+            }
+
+            //Read from stdin
+            int NewChar=getchar();
+            if (NewChar==EOF)
+                break;
+            Buffer[Buffer_Filling][Buffer_Size[Buffer_Filling]++]=(int8u)NewChar; //Fill the new char then increase offset
+        }
+
+        RequestTerminate();
+        while (Buffer_Size[Buffer_Filling])
+            Yield(); //Wait for the all buffer are cleared by the read thread
+    }
+};
+
+static void Reader_Cin_ForceTerminate()
+{
+    CriticalSectionLocker ToTerminate_CSL(ToTerminate_CS);
+    for (set<Reader_Cin_Thread*>::iterator ToTerminate_Item=ToTerminate.begin(); ToTerminate_Item!=ToTerminate.end(); ++ToTerminate_Item)
+        (*ToTerminate_Item)->ForceTerminate();
+    ToTerminate.clear();
+}
+
+static void Reader_Cin_ForceTerminate(Reader_Cin_Thread* Thread)
+{
+    CriticalSectionLocker ToTerminate_CSL(ToTerminate_CS);
+    Thread->ForceTerminate();
+    ToTerminate.erase(Thread);
+}
+
+static void CtrlC_Received()
+{
+    Reader_Cin_ForceTerminate();
+    CtrlC_Unregister();
+}
+
+#ifdef WINDOWS
+static BOOL WINAPI SignalHandler(DWORD SignalType)
+{
+    if (SignalType==CTRL_C_EVENT)
+    {
+        CtrlC_Received();
+        return true;
+    }
+
+    return FALSE;
+}
+
+static void CtrlC_Register()
+{
+    SetConsoleCtrlHandler(SignalHandler, TRUE);
+}
+
+static void CtrlC_Unregister()
+{
+    SetConsoleCtrlHandler(SignalHandler, FALSE);
+}
+#else //WINDOWS
+static void SignalHandler(int SignalType)
+{
+    if (SignalType==SIGINT)
+        CtrlC_Received();
+}
+
+static void CtrlC_Register()
+{
+    signal(SIGINT, SignalHandler);
+}
+
+static void CtrlC_Unregister()
+{
+    signal(SIGINT, SIG_DFL);
+}
+#endif //WINDOWS
+
+#endif
 
 //***************************************************************************
 // Constructor/destructor
@@ -1196,6 +1445,61 @@ void MediaInfo_Internal::Entry()
             #endif //MEDIAINFO_NEXTPACKET
         }
     #endif //MEDIAINFO_FILE_YES
+    #if MEDIAINFO_ADVANCED && defined(MEDIAINFO_FILE_YES) && !defined(WINDOWS_UWP) && !defined(__BORLANDC__)
+        else if (Config.File_Names[0]==__T("-")
+            #if defined(WINDOWS) && !defined(WINDOWS_UWP) && !defined(__BORLANDC__)
+                //&& WaitForSingleObject(GetStdHandle(STD_INPUT_HANDLE), 0) == WAIT_OBJECT_0 //Check if there is something is stdin
+                && _setmode(_fileno(stdin), _O_BINARY) != -1 //Force binary mode
+            #endif //defined(WINDOWS) && !defined(WINDOWS_UWP) && !defined(__BORLANDC__)
+            )
+        {
+            Reader_Cin_Thread Cin;
+            Cin.Run();
+            Open_Buffer_Init();
+            clock_t LastIn=-1;
+            int64u TimeOut_Temp=MediaInfoLib::Config.TimeOut_Get();
+            int64u TimeOut_Temp2=TimeOut_Temp*CLOCKS_PER_SEC;
+            clock_t TimeOut=(!CLOCKS_PER_SEC || !TimeOut_Temp || TimeOut_Temp2/CLOCKS_PER_SEC==TimeOut_Temp)?((clock_t)TimeOut_Temp2):-1;
+
+            for (;;)
+            {
+                int8u* Buffer_New;
+                size_t Buffer_Size_New;
+                if (Cin.IsExited())
+                    break;
+                Cin.Current(Buffer_New, Buffer_Size_New);
+                if (Buffer_Size_New)
+                {
+                    if (Open_Buffer_Continue(Buffer_New, Buffer_Size_New)[File__Analyze::IsFinished])
+                        Reader_Cin_ForceTerminate(&Cin);
+                    if (Config.RequestTerminate)
+                        Cin.RequestTerminate();
+                    Cin.IsManaged();
+                    if (TimeOut!=-1)
+                        LastIn=clock();
+                }
+                else
+                {
+                    if (LastIn!=-1)
+                    {
+                        clock_t NewLastIn=clock();
+                        if (NewLastIn-LastIn>=TimeOut)
+                        {
+                            Reader_Cin_ForceTerminate(&Cin);
+                            LastIn=-1;
+                        }
+                    }
+
+                    #ifdef WINDOWS
+                        Sleep(0);
+                    #elif defined(_POSIX_PRIORITY_SCHEDULING)
+                        sched_yield();
+                    #endif //_POSIX_PRIORITY_SCHEDULING
+                }
+            }
+            Open_Buffer_Finalize();
+        }
+    #endif //MEDIAINFO_ADVANCED && defined(MEDIAINFO_FILE_YES) && !defined(WINDOWS_UWP) && !defined(__BORLANDC__)
 
     Config.State_Set(1);
 }
@@ -1375,7 +1679,7 @@ std::bitset<32> MediaInfo_Internal::Open_Buffer_Continue (const int8u* ToAdd, si
         bool base64=MediaInfoLib::Config.FlagsX_Get(Flags_Input_base64);
         if (zlib || base64)
         {
-            if (ToAdd_Size!=Config.File_Size)
+            if (!ToAdd_Size || ToAdd_Size!=Config.File_Size)
             {
                 Info->ForceFinish(); // File must be complete when this option is used
                 return Info->Status;
@@ -1383,10 +1687,10 @@ std::bitset<32> MediaInfo_Internal::Open_Buffer_Continue (const int8u* ToAdd, si
             string Input_Cache; // In case of encoded content, this string must live up to the end of the parsing
             if (base64)
             {
-                Input_Cache.assign((const char*)ToAdd, ToAdd_Size); ;
+                Input_Cache.assign((const char*)ToAdd, ToAdd_Size);
                 Input_Cache=Base64::decode(Input_Cache);
                 ToAdd=(const int8u*)Input_Cache.c_str();
-                ToAdd_Size= Input_Cache.size();
+                ToAdd_Size=Input_Cache.size();
             }
             if (zlib)
             {
@@ -1576,10 +1880,10 @@ std::bitset<32> MediaInfo_Internal::Open_NextPacket ()
 //---------------------------------------------------------------------------
 void MediaInfo_Internal::Close()
 {
-    if (IsRunning())
+    if (IsRunning() || IsTerminating())
     {
         RequestTerminate();
-        while(IsExited())
+        while(!IsExited())
             Yield();
     }
 
@@ -1783,16 +2087,19 @@ Ztring MediaInfo_Internal::Get(stream_t StreamKind, size_t StreamPos, size_t Par
                         EXECUTE_STRING(ToReturn, Debug+=__T("Get, will return "); Debug+=ToReturn;)
                 }
             }
+            size_t Format_Pos=File__Analyze::Fill_Parameter(StreamKind, Generic_Format);
             #if MEDIAINFO_ADVANCED
             if (Config.File_ChannelLayout_Get())
             #endif //MEDIAINFO_ADVANCED
             {
-                Ztring ToReturn=ChannelLayout_2018_Rename(StreamKind, Parameter, Stream[StreamKind][StreamPos], Stream[StreamKind][StreamPos][File__Analyze::Fill_Parameter(StreamKind, Generic_Format)], ShouldReturn);
+                Ztring ToReturn;
+                if (Format_Pos<Stream[StreamKind][StreamPos].size())
+                    ToReturn=ChannelLayout_2018_Rename(StreamKind, Parameter, Stream[StreamKind][StreamPos], Stream[StreamKind][StreamPos][Format_Pos], ShouldReturn);
                 if (ShouldReturn)
                     EXECUTE_STRING(ToReturn, Debug+=__T("Get, will return "); Debug += ToReturn;)
             }
-            if (Stream[StreamKind][StreamPos][Parameter].empty() && Parameter==File__Analyze::Fill_Parameter(StreamKind, Generic_Format_String))
-                EXECUTE_STRING(Stream[StreamKind][StreamPos][File__Analyze::Fill_Parameter(StreamKind, Generic_Format)], Debug += __T("Get, will return "); Debug+=ToReturn;)
+            if (Format_Pos<Stream[StreamKind][StreamPos].size() && Stream[StreamKind][StreamPos][Parameter].empty() && Parameter==File__Analyze::Fill_Parameter(StreamKind, Generic_Format_String))
+                EXECUTE_STRING(Stream[StreamKind][StreamPos][Format_Pos], Debug += __T("Get, will return "); Debug+=ToReturn;)
             EXECUTE_STRING(Stream[StreamKind][StreamPos][Parameter], Debug += __T("Get, will return "); Debug+=ToReturn;)
         }
         else
@@ -1804,8 +2111,11 @@ Ztring MediaInfo_Internal::Get(stream_t StreamKind, size_t StreamPos, size_t Par
         if (KindOfInfo==Info_Text && Config.File_ChannelLayout_Get())
         #endif //MEDIAINFO_ADVANCED
         {
+            size_t Format_Pos=File__Analyze::Fill_Parameter(StreamKind, Generic_Format);
+            Ztring ToReturn;
             bool ShouldReturn=false;
-            Ztring ToReturn=ChannelLayout_2018_Rename(StreamKind, Stream_More[StreamKind][StreamPos][Parameter-MediaInfoLib::Config.Info_Get(StreamKind).size()][Info_Name], Stream_More[StreamKind][StreamPos][Parameter-MediaInfoLib::Config.Info_Get(StreamKind).size()](KindOfInfo), Stream[StreamKind][StreamPos][File__Analyze::Fill_Parameter(StreamKind, Generic_Format)], ShouldReturn);
+            if (Format_Pos<Stream[StreamKind][StreamPos].size())
+                ToReturn=ChannelLayout_2018_Rename(StreamKind, Stream_More[StreamKind][StreamPos][Parameter-MediaInfoLib::Config.Info_Get(StreamKind).size()][Info_Name], Stream_More[StreamKind][StreamPos][Parameter-MediaInfoLib::Config.Info_Get(StreamKind).size()](KindOfInfo), Stream[StreamKind][StreamPos][Format_Pos], ShouldReturn);
             if (ShouldReturn)
                 EXECUTE_STRING(ToReturn, Debug+=__T("Get, will return ");Debug+=ToReturn;)
         }
@@ -1936,8 +2246,11 @@ Ztring MediaInfo_Internal::Get(stream_t StreamKind, size_t StreamPos, const Stri
         if (KindOfInfo==Info_Text && Config.File_ChannelLayout_Get())
         #endif //MEDIAINFO_ADVANCED
         {
+            size_t Format_Pos=File__Analyze::Fill_Parameter(StreamKind, Generic_Format);
+            Ztring ToReturn;
             bool ShouldReturn=false;
-            Ztring ToReturn=ChannelLayout_2018_Rename(StreamKind, Stream_More[StreamKind][StreamPos][ParameterI][Info_Name], Stream_More[StreamKind][StreamPos][ParameterI](KindOfInfo), Stream[StreamKind][StreamPos][File__Analyze::Fill_Parameter(StreamKind, Generic_Format)], ShouldReturn);
+            if (Format_Pos<Stream[StreamKind][StreamPos].size())
+                ToReturn=ChannelLayout_2018_Rename(StreamKind, Stream_More[StreamKind][StreamPos][ParameterI][Info_Name], Stream_More[StreamKind][StreamPos][ParameterI](KindOfInfo), Stream[StreamKind][StreamPos][Format_Pos], ShouldReturn);
             if (ShouldReturn)
                 EXECUTE_STRING(ToReturn, Debug+=__T("Get, will return ");Debug+=ToReturn;)
         }
@@ -2286,9 +2599,9 @@ Ztring MediaInfo_Internal::Inform(std::vector<MediaInfo_Internal*>& Info)
         Result+=MediaInfoLib::Config.LineSeparator_Get();
         Result+=__T("    xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"");
         Result+=MediaInfoLib::Config.LineSeparator_Get();
-        Result+=__T("    xsi:schemaLocation=\"http")+(MediaInfoLib::Config.Https_Get()?Ztring(__T("s")):Ztring())+__T("://mediaarea.net/mediatrace http")+(MediaInfoLib::Config.Https_Get()?Ztring(__T("s")):Ztring())+__T("://mediaarea.net/mediatrace/mediatrace_0_1.xsd\"");
+        Result+=__T("    xsi:schemaLocation=\"http")+(MediaInfoLib::Config.Https_Get()?Ztring(__T("s")):Ztring())+__T("://mediaarea.net/mediatrace http")+(MediaInfoLib::Config.Https_Get()?Ztring(__T("s")):Ztring())+__T("://mediaarea.net/mediatrace/mediatrace_0_2.xsd\"");
         Result+=MediaInfoLib::Config.LineSeparator_Get();
-        Result+=__T("    version=\"0.1\"");
+        Result+=__T("    version=\"0.2\"");
         Result+=__T(">")+MediaInfoLib::Config.LineSeparator_Get();
         Result+=__T("<creatingLibrary version=\"")+Ztring(MediaInfo_Version).SubString(__T(" - v"), Ztring())+__T("\" url=\"http")+(MediaInfoLib::Config.Https_Get()?Ztring(__T("s")):Ztring())+__T("://mediaarea.net/MediaInfo\">MediaInfoLib</creatingLibrary>");
         Result+=MediaInfoLib::Config.LineSeparator_Get();
@@ -2343,6 +2656,32 @@ Ztring MediaInfo_Internal::Inform(std::vector<MediaInfo_Internal*>& Info)
         }
 
         Result+=__T("</MicroMediaTrace>");
+    }
+
+    else if (MediaInfoLib::Config.Inform_Get().MakeLowerCase()==__T("timecodexml"))
+    {
+        Result+=__T("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")+MediaInfoLib::Config.LineSeparator_Get();
+        Result+=__T('<');
+        Result+=__T("MediaTimecode");
+        Result+=MediaInfoLib::Config.LineSeparator_Get();
+        Result+=__T("    xmlns=\"http")+(MediaInfoLib::Config.Https_Get()?Ztring(__T("s")):Ztring())+__T("://mediaarea.net/mediatimecode\"");
+        Result+=MediaInfoLib::Config.LineSeparator_Get();
+        Result+=__T("    xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"");
+        Result+=MediaInfoLib::Config.LineSeparator_Get();
+        Result+=__T("    xsi:schemaLocation=\"http")+(MediaInfoLib::Config.Https_Get()?Ztring(__T("s")):Ztring())+__T("://mediaarea.net/mediatimecode http")+(MediaInfoLib::Config.Https_Get()?Ztring(__T("s")):Ztring())+__T("://mediaarea.net/xsd/mediatimecode.xsd\"");
+        Result+=MediaInfoLib::Config.LineSeparator_Get();
+        Result+=__T("    version=\"0.0\"");
+        Result+=__T(">")+MediaInfoLib::Config.LineSeparator_Get();
+        Result+=__T("<creatingLibrary version=\"")+Ztring(MediaInfo_Version).SubString(__T(" - v"), Ztring())+__T("\" url=\"http")+(MediaInfoLib::Config.Https_Get()?Ztring(__T("s")):Ztring())+__T("://mediaarea.net/MediaInfo\">MediaInfoLib</creatingLibrary>");
+        Result+=MediaInfoLib::Config.LineSeparator_Get();
+
+        for (size_t FilePos=0; FilePos<Info.size(); FilePos++)
+            Result+=Info[FilePos]->Inform();
+
+        if (!Result.empty() && Result[Result.size()-1]!=__T('\r') && Result[Result.size()-1]!=__T('\n'))
+            Result+=MediaInfoLib::Config.LineSeparator_Get();
+        Result+=__T("</MediaTimecode");
+        Result+=__T(">")+MediaInfoLib::Config.LineSeparator_Get();
     }
 
     else if (MediaInfoLib::Config.Inform_Get()==__T("XML") || MediaInfoLib::Config.Inform_Get()==__T("MIXML"))

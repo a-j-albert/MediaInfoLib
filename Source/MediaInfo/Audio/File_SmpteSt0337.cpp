@@ -28,6 +28,12 @@
 #if defined(MEDIAINFO_AC3_YES)
     #include "MediaInfo/Audio/File_Ac3.h"
 #endif
+#if defined(MEDIAINFO_AC4_YES)
+    #include "MediaInfo/Audio/File_Ac4.h"
+#endif
+#if defined(MEDIAINFO_ADM_YES)
+    #include "MediaInfo/Audio/File_Adm.h"
+#endif
 #if defined(MEDIAINFO_DOLBYE_YES)
     #include "MediaInfo/Audio/File_DolbyE.h"
 #endif
@@ -40,6 +46,9 @@
 #if MEDIAINFO_SEEK
     #include "MediaInfo/MediaInfo_Internal.h"
 #endif // MEDIAINFO_SEEK
+#if defined(MEDIAINFO_ADM_YES)
+    #include <zlib.h>
+#endif
 #include "MediaInfo/File_Unknown.h"
 #include "MediaInfo/MediaInfo_Config_MediaInfo.h"
 //---------------------------------------------------------------------------
@@ -52,7 +61,7 @@ namespace MediaInfoLib
 //***************************************************************************
 
 //---------------------------------------------------------------------------
-static const char* Smpte_St0337_data_type[32]= // SMPTE ST 338
+static const char* Smpte_St0337_data_type[]= // SMPTE ST 338
 {
     "",
     "AC-3",
@@ -71,25 +80,26 @@ static const char* Smpte_St0337_data_type[32]= // SMPTE ST 338
     "",
     "",
     "E-AC-3",
-    "",
-    "",
+    "DTS",
+    "WMA",
     "AAC",
-    "",
+    "AAC",
     "E-AC-3",
     "",
     "",
-    "",
-    "",
+    "AC-4",
+    "MPEG-H 3D Audio",
     "Utility",
     "KLV",
     "Dolby E",
     "Captioning",
     "User defined",
-    "",
+    "Extended",
+    "ADM",
 };
 
 //---------------------------------------------------------------------------
-static stream_t Smpte_St0337_data_type_StreamKind[32]= // SMPTE 338M
+static stream_t Smpte_St0337_data_type_StreamKind[sizeof(Smpte_St0337_data_type)/sizeof(char*)]= // SMPTE 338M
 {
     Stream_Max,
     Stream_Audio,
@@ -123,7 +133,23 @@ static stream_t Smpte_St0337_data_type_StreamKind[32]= // SMPTE 338M
     Stream_Text,
     Stream_Max,
     Stream_Max,
+    Stream_Audio,
 };
+
+#if defined(MEDIAINFO_ADM_YES)
+static const char* Smpte_St0337_Adm_multiple_chunk_flag[4]=
+{
+    "Full",
+    "First",
+    "Intermediate",
+    "Last",
+};
+static const char* Smpte_St0337_Adm_format_type[2]=
+{
+    "UTF-8",
+    "UTF-8 gzip",
+};
+#endif
 
 //***************************************************************************
 // Constructor/Destructor
@@ -131,25 +157,23 @@ static stream_t Smpte_St0337_data_type_StreamKind[32]= // SMPTE 338M
 
 //---------------------------------------------------------------------------
 File_SmpteSt0337::File_SmpteSt0337()
-:File__Analyze()
+:File_Pcm_Base()
 {
     // Configuration
     #if MEDIAINFO_EVENTS
         ParserIDs[0]=MediaInfo_Parser_Aes3;
     #endif // MEDIAINFO_EVENTS
     MustSynchronize=true;
-    Buffer_TotalBytes_FirstSynched_Max=256*1024;
+    Buffer_TotalBytes_FirstSynched_Max=1024*1024;
     PTS_DTS_Needed=true;
 
     // In
-    Container_Bits=0;
-    Endianness=0x00;
     Aligned=false;
 
     // Temp
     FrameRate=0;
     Stream_Bits=0;
-    data_type=(int8u)-1;
+    data_type=(int32u)-1;
     GuardBand_Before=0;
     GuardBand_After=0;
     NullPadding_Size=0;
@@ -195,7 +219,7 @@ void File_SmpteSt0337::Streams_Fill()
                 FrameRate=FrameRate_Int/1.001;
         }
     }
-    else if (data_type!=(int8u)-1)
+    else if (data_type<sizeof(Smpte_St0337_data_type_StreamKind)/sizeof(stream_t))
     {
         if (Retrieve(Stream_Audio, 0, Audio_Format).empty() && Smpte_St0337_data_type_StreamKind[data_type]!=Stream_Max)
         {
@@ -215,10 +239,10 @@ void File_SmpteSt0337::Streams_Fill()
         {
             FrameSize=FrameSizes.begin()->first;
         }
-        else if (FrameSizes.size()==2 && ((--FrameSizes.end())->first-FrameSizes.begin()->first)*4==Container_Bits && FrameSizes.begin()->second*3<=(--FrameSizes.end())->second*2 && (FrameSizes.begin()->second+1)*3>=(--FrameSizes.end())->second*2)
+        else if (FrameSizes.size()==2 && ((--FrameSizes.end())->first-FrameSizes.begin()->first)*4==BitDepth && FrameSizes.begin()->second*3<=(--FrameSizes.end())->second*2 && (FrameSizes.begin()->second+1)*3>=(--FrameSizes.end())->second*2)
         {
             // Maybe NTSC frame rate and 48 kHz.
-            FrameSize=FrameSizes.begin()->first+((float64)Container_Bits)/4*3/5; //2x small then 3x big
+            FrameSize=FrameSizes.begin()->first+((float64)BitDepth)/4*3/5; //2x small then 3x big
         }
         else
         {
@@ -236,7 +260,7 @@ void File_SmpteSt0337::Streams_Fill()
         if (FrameSize)
         {
             float64 BitRate=FrameSize*8*FrameRate;
-            float64 BitRate_Theory=Container_Bits*2*48000;
+            float64 BitRate_Theory=BitDepth*2*48000;
             if (BitRate>=BitRate_Theory*0.999 && BitRate<=BitRate_Theory*1.001)
                 BitRate=BitRate_Theory;
             Fill(Stream_General, 0, General_OverallBitRate, BitRate, 0, true);
@@ -259,28 +283,36 @@ void File_SmpteSt0337::Streams_Fill()
 
     for (size_t Pos=0; Pos<Count_Get(StreamKind_Last); Pos++)
     {
-        if (Endianness=='L' && Retrieve(StreamKind_Last, Pos, "Format_Settings_Endianness")==__T("Little"))
-            Endianness='B';
-        switch (Endianness)
+        if (!IsSub || Retrieve_Const(StreamKind_Last, Pos, "Metadata_MuxingMode").empty())
         {
-            case 'B' :
-                        Fill(StreamKind_Last, Pos, "Format_Settings", "Big");
-                        Fill(StreamKind_Last, Pos, "Format_Settings_Endianness", "Big", Unlimited, true, true);
-                        break;
-            case 'L' :
-                        Fill(StreamKind_Last, Pos, "Format_Settings", "Little");
-                        Fill(StreamKind_Last, Pos, "Format_Settings_Endianness", "Little", Unlimited, true, true);
-                        break;
-            default  : ;
+            if (!IsSub && StreamKind_Last==Stream_Audio && Retrieve_Const(StreamKind_Last, Pos, "Format").empty())
+            {
+                Fill(Stream_Audio, Pos, Audio_Format, "PCM");
+                Fill(Stream_Audio, Pos, Audio_Channel_s_, 2);
+            }
+            if (Endianness=='L' && Retrieve(StreamKind_Last, Pos, "Format_Settings_Endianness")==__T("Little"))
+                Endianness='B';
+            switch (Endianness)
+            {
+                case 'B' :
+                            Fill(StreamKind_Last, Pos, "Format_Settings", "Big");
+                            Fill(StreamKind_Last, Pos, "Format_Settings_Endianness", "Big", Unlimited, true, true);
+                            break;
+                case 'L' :
+                            Fill(StreamKind_Last, Pos, "Format_Settings", "Little");
+                            Fill(StreamKind_Last, Pos, "Format_Settings_Endianness", "Little", Unlimited, true, true);
+                            break;
+                default  : ;
+            }
+            Fill(StreamKind_Last, Pos, "Format_Settings_Mode", BitDepth);
+            if (Retrieve(StreamKind_Last, Pos, Fill_Parameter(StreamKind_Last, Generic_BitDepth)).empty())
+                Fill(StreamKind_Last, Pos, Fill_Parameter(StreamKind_Last, Generic_BitDepth), Stream_Bits);
+            if (Retrieve(StreamKind_Last, Pos, Fill_Parameter(StreamKind_Last, Generic_BitRate_Mode))!=__T("CBR"))
+                Fill(StreamKind_Last, Pos, Fill_Parameter(StreamKind_Last, Generic_BitRate_Mode), "CBR");
         }
-        Fill(StreamKind_Last, Pos, "Format_Settings_Mode", Container_Bits);
-        if (Retrieve(StreamKind_Last, Pos, Fill_Parameter(StreamKind_Last, Generic_BitDepth)).empty())
-            Fill(StreamKind_Last, Pos, Fill_Parameter(StreamKind_Last, Generic_BitDepth), Stream_Bits);
 
-        if (IsSub)
+        if (IsSub && Retrieve_Const(StreamKind_Last, Pos, "Metadata_MuxingMode").empty())
             Fill(StreamKind_Last, Pos, "MuxingMode", "SMPTE ST 337");
-        if (Retrieve(StreamKind_Last, Pos, Fill_Parameter(StreamKind_Last, Generic_BitRate_Mode))!=__T("CBR"))
-            Fill(StreamKind_Last, Pos, Fill_Parameter(StreamKind_Last, Generic_BitRate_Mode), "CBR");
     }
 }
 
@@ -417,20 +449,14 @@ bool File_SmpteSt0337::Synchronize()
     // Synchronizing
     while (Buffer_Offset+16<=Buffer_Size)
     {
-        if (!Status[IsAccepted] && File_Offset_FirstSynched==(int64u)-1 && Buffer_TotalBytes+Buffer_Offset>=Buffer_TotalBytes_FirstSynched_Max)
-        {
-            Reject();
-            return false;
-        }
-
-        if ((Container_Bits==0 || Container_Bits==16) && (!Aligned || ((Buffer_TotalBytes+Buffer_Offset)%4)==0))
+        if ((BitDepth==0 || BitDepth==16) && (!Aligned || ((Buffer_TotalBytes+Buffer_Offset)%4)==0))
         {
             if (Buffer[Buffer_Offset  ]==0xF8
              && Buffer[Buffer_Offset+1]==0x72
              && Buffer[Buffer_Offset+2]==0x4E
              && Buffer[Buffer_Offset+3]==0x1F) // 16-bit, BE
             {
-                Container_Bits=16;
+                BitDepth=16;
                 Stream_Bits=16;
                 Endianness='B'; // BE
                 break; // while()
@@ -440,13 +466,13 @@ bool File_SmpteSt0337::Synchronize()
              && Buffer[Buffer_Offset+2]==0x1F
              && Buffer[Buffer_Offset+3]==0x4E) // 16-bit, LE
             {
-                Container_Bits=16;
+                BitDepth=16;
                 Stream_Bits=16;
                 Endianness='L'; // LE
                 break; // while()
             }
         }
-        if ((Container_Bits==0 || Container_Bits==20) && (!Aligned || ((Buffer_TotalBytes+Buffer_Offset)%5)==0))
+        if ((BitDepth==0 || BitDepth==20) && (!Aligned || ((Buffer_TotalBytes+Buffer_Offset)%5)==0))
         {
             if (Buffer[Buffer_Offset  ]==0x6F
              && Buffer[Buffer_Offset+1]==0x87
@@ -454,13 +480,13 @@ bool File_SmpteSt0337::Synchronize()
              && Buffer[Buffer_Offset+3]==0x4E
              && Buffer[Buffer_Offset+4]==0x1F) // 20-bit, BE
             {
-                Container_Bits=20;
+                BitDepth=20;
                 Stream_Bits=20;
                 Endianness='B'; // BE
                 break; // while()
             }
         }
-        if ((Container_Bits==0 || Container_Bits==20) && (!Aligned || ((Buffer_TotalBytes+Buffer_Offset)%5)==0))
+        if ((BitDepth==0 || BitDepth==20) && (!Aligned || ((Buffer_TotalBytes+Buffer_Offset)%5)==0))
         {
             if (Buffer[Buffer_Offset  ]==0x72
              && Buffer[Buffer_Offset+1]==0xF8
@@ -468,13 +494,13 @@ bool File_SmpteSt0337::Synchronize()
              && Buffer[Buffer_Offset+3]==0xE1
              && Buffer[Buffer_Offset+4]==0x54) // 20-bit, LE
             {
-                Container_Bits=20;
+                BitDepth=20;
                 Stream_Bits=20;
                 Endianness='L'; // BE
                 break; // while()
             }
         }
-        if ((Container_Bits==0 || Container_Bits==24) && (!Aligned || ((Buffer_TotalBytes+Buffer_Offset)%6)==0))
+        if ((BitDepth==0 || BitDepth==24) && (!Aligned || ((Buffer_TotalBytes+Buffer_Offset)%6)==0))
         {
             if (Buffer[Buffer_Offset  ]==0x96
              && Buffer[Buffer_Offset+1]==0xF8
@@ -483,7 +509,7 @@ bool File_SmpteSt0337::Synchronize()
              && Buffer[Buffer_Offset+4]==0x4E
              && Buffer[Buffer_Offset+5]==0x1F) // 24-bit, BE
             {
-                Container_Bits=24;
+                BitDepth=24;
                 Stream_Bits=24;
                 Endianness='B'; // BE
                 break; // while()
@@ -495,7 +521,7 @@ bool File_SmpteSt0337::Synchronize()
              && Buffer[Buffer_Offset+4]==0x4E
              && Buffer[Buffer_Offset+5]==0xA5) // 24-bit, LE
             {
-                Container_Bits=24;
+                BitDepth=24;
                 Stream_Bits=24;
                 Endianness='L'; // LE
                 break; // while()
@@ -507,7 +533,7 @@ bool File_SmpteSt0337::Synchronize()
              && Buffer[Buffer_Offset+4]==0x4E
              && Buffer[Buffer_Offset+5]==0x1F) // 16-bit in 24-bit, BE
             {
-                Container_Bits=24;
+                BitDepth=24;
                 Stream_Bits=16;
                 Endianness='B'; // BE
                 NullPadding_Size=1;
@@ -520,7 +546,7 @@ bool File_SmpteSt0337::Synchronize()
              && Buffer[Buffer_Offset+4]==0x1F
              && Buffer[Buffer_Offset+5]==0x4E) // 16-bit in 24-bit, LE
             {
-                Container_Bits=24;
+                BitDepth=24;
                 Stream_Bits=16;
                 Endianness='L'; // LE
                 NullPadding_Size=1;
@@ -533,7 +559,7 @@ bool File_SmpteSt0337::Synchronize()
              && Buffer[Buffer_Offset+4]==0xE1
              && Buffer[Buffer_Offset+5]==0xF0) // 20-bit in 24-bit, BE
             {
-                Container_Bits=24;
+                BitDepth=24;
                 Stream_Bits=20;
                 Endianness='B'; // BE
                 break; // while()
@@ -545,13 +571,13 @@ bool File_SmpteSt0337::Synchronize()
              && Buffer[Buffer_Offset+4]==0xE1
              && Buffer[Buffer_Offset+5]==0x54) // 20-bit in 24-bit, LE
             {
-                Container_Bits=24;
+                BitDepth=24;
                 Stream_Bits=20;
                 Endianness='L'; // LE
                 break; // while()
             }
         }
-        if ((Container_Bits==0 || Container_Bits==32) && (!Aligned || ((Buffer_TotalBytes+Buffer_Offset)%8)==0))
+        if ((BitDepth==0 || BitDepth==32) && (!Aligned || ((Buffer_TotalBytes+Buffer_Offset)%8)==0))
         {
             if (Buffer[Buffer_Offset  ]==0x00
              && Buffer[Buffer_Offset+1]==0x00
@@ -562,7 +588,7 @@ bool File_SmpteSt0337::Synchronize()
              && Buffer[Buffer_Offset+6]==0x4E
              && Buffer[Buffer_Offset+7]==0x1F) // 16-bit in 32-bit, BE
             {
-                Container_Bits=32;
+                BitDepth=32;
                 Stream_Bits=16;
                 Endianness='B'; // BE
                 NullPadding_Size=2;
@@ -577,7 +603,7 @@ bool File_SmpteSt0337::Synchronize()
              && Buffer[Buffer_Offset+6]==0x1F
              && Buffer[Buffer_Offset+7]==0x4E) // 16-bit in 32-bit, LE
             {
-                Container_Bits=32;
+                BitDepth=32;
                 Stream_Bits=16;
                 Endianness='L'; // LE
                 NullPadding_Size=2;
@@ -592,7 +618,7 @@ bool File_SmpteSt0337::Synchronize()
              && Buffer[Buffer_Offset+6]==0xE1
              && Buffer[Buffer_Offset+7]==0xF0) // 20-bit in 32-bit, BE
             {
-                Container_Bits=32;
+                BitDepth=32;
                 Stream_Bits=20;
                 Endianness='B'; // BE
                 NullPadding_Size=1;
@@ -607,7 +633,7 @@ bool File_SmpteSt0337::Synchronize()
              && Buffer[Buffer_Offset+6]==0xE1
              && Buffer[Buffer_Offset+7]==0x54) // 20-bit in 32-bit, LE
             {
-                Container_Bits=32;
+                BitDepth=32;
                 Stream_Bits=20;
                 Endianness='L'; // LE
                 NullPadding_Size=1;
@@ -622,7 +648,7 @@ bool File_SmpteSt0337::Synchronize()
              && Buffer[Buffer_Offset+6]==0x4E
              && Buffer[Buffer_Offset+7]==0x1F) // 24-bit in 32-bit, BE
             {
-                Container_Bits=32;
+                BitDepth=32;
                 Stream_Bits=24;
                 Endianness='B'; // BE
                 NullPadding_Size=1;
@@ -637,7 +663,7 @@ bool File_SmpteSt0337::Synchronize()
              && Buffer[Buffer_Offset+6]==0x4E
              && Buffer[Buffer_Offset+7]==0xA5) // 24-bit in 32-bit, LE
             {
-                Container_Bits=32;
+                BitDepth=32;
                 Stream_Bits=24;
                 Endianness='L'; // LE
                 NullPadding_Size=1;
@@ -645,8 +671,8 @@ bool File_SmpteSt0337::Synchronize()
             }
         }
 
-        if (Container_Bits>=4 && Aligned)
-            Buffer_Offset+=Container_Bits/4;
+        if (BitDepth>=4 && Aligned)
+            Buffer_Offset+=BitDepth/4;
         else
             Buffer_Offset++;
     }
@@ -659,7 +685,7 @@ bool File_SmpteSt0337::Synchronize()
         return false;
     }
 
-    if (!Status[IsAccepted])
+    if (!Status[IsAccepted] && IsSub)
         Accept("SMPTE ST 337");
 
     // Guard band
@@ -687,7 +713,7 @@ bool File_SmpteSt0337::Synched_Test()
     size_t Buffer_Offset_Temp=Buffer_Offset;
     if (Aligned)
     {
-        if (Container_Bits==16)
+        if (BitDepth==16)
         {
             while ((Buffer_TotalBytes+Buffer_Offset_Temp)%4) // Padding in part of the AES3 block
             {
@@ -711,7 +737,7 @@ bool File_SmpteSt0337::Synched_Test()
                 return false;
             }
         }
-        if (Container_Bits==20)
+        if (BitDepth==20)
         {
             while ((Buffer_TotalBytes+Buffer_Offset_Temp)%5) // Padding in part of the AES3 block
             {
@@ -735,7 +761,7 @@ bool File_SmpteSt0337::Synched_Test()
                 return false;
             }
         }
-        if (Container_Bits==24)
+        if (BitDepth==24)
         {
             while ((Buffer_TotalBytes+Buffer_Offset_Temp)%6) // Padding in part of the AES3 block
             {
@@ -759,7 +785,7 @@ bool File_SmpteSt0337::Synched_Test()
                 return false;
             }
         }
-        else if (Container_Bits==32)
+        else if (BitDepth==32)
         {
             while ((Buffer_TotalBytes+Buffer_Offset_Temp)%8) // Padding in part of the AES3 block
             {
@@ -812,7 +838,7 @@ bool File_SmpteSt0337::Synched_Test()
     switch (Endianness)
     {
         case 'B' :
-                    switch (Container_Bits)
+                    switch (BitDepth)
                     {
                         case 16 :   if (CC4(Buffer+Buffer_Offset)!=0xF8724E1F) {Synched=false; return true;} break;
                         case 20 :   if (CC5(Buffer+Buffer_Offset)!=0x6F87254E1FLL) {Synched=false; return true;} break;
@@ -838,7 +864,7 @@ bool File_SmpteSt0337::Synched_Test()
                     }
                     break;
         case 'L'  :
-                    switch (Container_Bits)
+                    switch (BitDepth)
                     {
                         case 16 :   if (CC4(Buffer+Buffer_Offset)!=0x72F81F4E) {Synched=false; return true;} break;
                         case 20 :   if (CC5(Buffer+Buffer_Offset)!=0x72F8F6E154LL) {Synched=false; return true;} break;
@@ -905,7 +931,7 @@ void File_SmpteSt0337::Header_Parse()
     switch (Endianness)
     {
         case 'B' :
-                    switch (Container_Bits)
+                    switch (BitDepth)
                     {
                         case 16 :   Size=BigEndian2int16u(Buffer+Buffer_Offset+6)         ; break;
                         case 20 :   Size=BigEndian2int24u(Buffer+Buffer_Offset+7)&0x0FFFFF; break;
@@ -931,7 +957,7 @@ void File_SmpteSt0337::Header_Parse()
                     }
                     break;
         case 'L'  :
-                    switch (Container_Bits)
+                    switch (BitDepth)
                     {
                         case 16 :   Size=LittleEndian2int16u(Buffer+Buffer_Offset+6)   ; break;
                         case 20 :   Size=LittleEndian2int24u(Buffer+Buffer_Offset+7)>>4; break;
@@ -960,26 +986,26 @@ void File_SmpteSt0337::Header_Parse()
     }
 
     // Adaptation
-    if (Container_Bits!=Stream_Bits)
+    if (BitDepth!=Stream_Bits)
     {
-        Size*=Container_Bits; Size/=Stream_Bits;
+        Size*=BitDepth; Size/=Stream_Bits;
     }
 
     // Coherency test
-    if (!IsSub && !Status[IsAccepted])
+    if (!IsSub && !Status[IsAccepted] && File_Offset+Buffer_Size<File_Size)
     {
-        size_t Offset=Buffer_Offset+(size_t)(Container_Bits*4/8+Size/8);
+        size_t Offset=Buffer_Offset+(size_t)(BitDepth*4/8+Size/8);
         while (Offset<Buffer_Size && Buffer[Offset]==0x00)
             Offset++;
-        if (Offset+Container_Bits/4>Buffer_Size)
+        if (Offset+BitDepth/4>Buffer_Size)
         {
             Element_WaitForMoreData();
             return;
         }
-        Offset/=Container_Bits/4;
-        Offset*=Container_Bits/4;
+        Offset/=BitDepth/4;
+        Offset*=BitDepth/4;
         bool IsOK=true;
-        for (int8u Pos=0; Pos<Container_Bits/4; Pos++)
+        for (int8u Pos=0; Pos<BitDepth/4; Pos++)
             if (Buffer[Buffer_Offset+Pos]!=Buffer[Offset+Pos])
             {
                 IsOK=false;
@@ -994,7 +1020,10 @@ void File_SmpteSt0337::Header_Parse()
     }
 
     // Filling
-    Header_Fill_Size(Container_Bits*4/8+Size/8);
+    Padding=(int8u)(Size%BitDepth);
+    if (Padding)
+        Size+=BitDepth-Padding;
+    Header_Fill_Size(BitDepth*4/8+Size/8);
     Header_Fill_Code(0, "SMPTE ST 337");
 }
 
@@ -1013,12 +1042,12 @@ void File_SmpteSt0337::Data_Parse()
     size_t Save_Buffer_Size=0;
     int64u Save_Element_Size=0;
 
-    if (Endianness=='L'|| Container_Bits!=Stream_Bits)
+    if (Endianness=='L'|| BitDepth!=Stream_Bits)
     {
         int8u* Info=new int8u[(size_t)Element_Size];
         int8u* Info_Temp=Info;
 
-        if (Endianness=='L' && Container_Bits==16 && Stream_Bits==16)
+        if (Endianness=='L' && BitDepth==16 && Stream_Bits==16)
         {
             // Source: 16LE / L1L0 L3L2 R1R0 R3R2
             // Dest  : 16BE / L3L2 L1L0 R3R2 R1R0
@@ -1044,7 +1073,7 @@ void File_SmpteSt0337::Data_Parse()
             }
         }
 
-        if (Endianness=='L' && Container_Bits==20 && Stream_Bits==20)
+        if (Endianness=='L' && BitDepth==20 && Stream_Bits==20)
         {
             // Source: 20LE / L1L0 L3L2 R0L4 R2R1 R4R3
             // Dest  : 20BE / L4L3 L2L1 L0R4 R3R2 R1R0
@@ -1062,7 +1091,7 @@ void File_SmpteSt0337::Data_Parse()
             }
         }
 
-        if (Endianness=='L' && Container_Bits==24 && Stream_Bits==16)
+        if (Endianness=='L' && BitDepth==24 && Stream_Bits==16)
         {
             // Source:        XXXX L1L0 L3L2 XXXX R1R0 R3R2
             // Dest  : 16BE / L3L2 L1L0 R3R2 R1R0
@@ -1079,7 +1108,7 @@ void File_SmpteSt0337::Data_Parse()
             }
         }
 
-        if (Endianness=='L' && Container_Bits==24 && Stream_Bits==20)
+        if (Endianness=='L' && BitDepth==24 && Stream_Bits==20)
         {
             // Source:        L0XX L2L1 L4L3 R0XX R2R1 R4R3
             // Dest  : 20BE / L4L3 L2L1 L0R4 R3R2 R1R0
@@ -1105,7 +1134,7 @@ void File_SmpteSt0337::Data_Parse()
             }
         }
 
-        if (Endianness=='L' && Container_Bits==24 && Stream_Bits==24)
+        if (Endianness=='L' && BitDepth==24 && Stream_Bits==24)
         {
             // Source: 24LE / L1L0 L3L2 L5L3 R1R0 R3R2 R5R4
             // Dest  : 24BE / L5L3 L3L2 L1L0 R5R4 R3R2 R1R0
@@ -1124,7 +1153,7 @@ void File_SmpteSt0337::Data_Parse()
             }
         }
 
-        if (Endianness=='L' && Container_Bits==32 && Stream_Bits==16)
+        if (Endianness=='L' && BitDepth==32 && Stream_Bits==16)
         {
             // Source:        XXXX XXXX L1L0 L3L2 XXXX XXXX R1R0 R3R2
             // Dest  : 16BE / L3L2 L1L0 R3R2 R1R0
@@ -1140,7 +1169,7 @@ void File_SmpteSt0337::Data_Parse()
                 Element_Offset+=8;
             }
         }
-        if (Endianness=='L' && Container_Bits==32 && Stream_Bits==20)
+        if (Endianness=='L' && BitDepth==32 && Stream_Bits==20)
         {
             // Source:        XXXX L0XX L2L1 L4L3 XXXX R0XX R2R1 R4R3
             // Dest  : 20BE / L4L3 L2L1 L0R4 R3R2 R1R0
@@ -1158,7 +1187,7 @@ void File_SmpteSt0337::Data_Parse()
             }
         }
 
-        if (Endianness=='L' && Container_Bits==32 && Stream_Bits==24)
+        if (Endianness=='L' && BitDepth==32 && Stream_Bits==24)
         {
             // Source:        XXXX L1L0 L3L2 L5L3 XXXX R1R0 R3R2 R5R4
             // Dest  : 24BE / L5L3 L3L2 L1L0 R5R4 R3R2 R1R0
@@ -1177,7 +1206,7 @@ void File_SmpteSt0337::Data_Parse()
             }
         }
 
-        if (Endianness=='B' && Container_Bits==24 && Stream_Bits==20)
+        if (Endianness=='B' && BitDepth==24 && Stream_Bits==20)
         {
             // Source:        L4L3 L2L1 L0XX R4R3 R2R1 R0XX
             // Dest  : 20BE / L4L3 L2L1 L0R4 R3R2 R1R0
@@ -1209,23 +1238,153 @@ void File_SmpteSt0337::Data_Parse()
 
     // Parsing
     int32u  length_code;
-    int8u data_type_New;
+    int8u data_stream_number;
+    int32u data_type_New;
+    int8u data_type_dependent;
+    int8u* UncompressedData=NULL;
+    size_t UncompressedData_Size=0;
+    string MuxingMode;
     Element_Begin1("Header");
         BS_Begin();
         Skip_S3(Stream_Bits,                                    "Pa");
         Skip_S3(Stream_Bits,                                    "Pb");
         Element_Begin1("Pc");
-            Skip_S1( 3,                                         "data_stream_number");
-            Skip_S1( 5,                                         "data_type_dependent");
+            Get_S1 ( 3, data_stream_number,                     "data_stream_number");
+            Get_S1 ( 5, data_type_dependent,                    "data_type_dependent");
             Skip_SB(                                            "error_flag");
             Info_S1( 2, data_mode,                              "data_mode"); Param_Info2(16+4*data_mode, " bits");
-            Get_S1 ( 5, data_type_New,                          "data_type"); Param_Info1(Smpte_St0337_data_type[data_type_New]);
+            Get_S4 ( 5, data_type_New,                          "data_type"); Param_Info1(Smpte_St0337_data_type[data_type_New]);
             if (Stream_Bits>16)
-                Skip_S1( 4,                                     "reserved");
-            if (Stream_Bits>20)
-                Skip_S1( 4,                                     "reserved");
+                Skip_S1(Stream_Bits-16,                         "reserved");
         Element_End0();
         Get_S3 (Stream_Bits, length_code,                       "length_code"); Param_Info2(length_code/8, " bytes");
+        if (data_type_New==31)
+        {
+            if (Stream_Bits>16)
+                Skip_S1(Stream_Bits-16,                         "reserved");
+            Get_S4 (16, data_type_New,                          "data_type");
+            data_type_New+=32;
+            Skip_S3(Stream_Bits,                                "reserved");
+            if (data_type_New==32+1) // ADM
+            {
+                int8u multiple_chunk_flag=data_type_dependent>>3;               //2-bit
+                bool format_flag=((data_type_dependent>>2)&1)?true:false;       //1-bit
+                bool assemble_flag=((data_type_dependent>>1)&1)?true:false;     //1-bit
+                bool changedMetadata_flag=(data_type_dependent&1)?true:false;   //1-bit
+                Param_Info1(Smpte_St0337_Adm_multiple_chunk_flag[multiple_chunk_flag]);
+                int8u format_type=0, Track_ID=0, track_numbers=0, in_timeline_flag=0;
+                if (format_flag)
+                {
+                    Element_Begin1("format_info");
+                    Skip_S2(12,                                 "reserved");
+                    Get_S1 (4, format_type,                     "format_type"); Param_Info1C(format_type<sizeof(Smpte_St0337_Adm_format_type)/sizeof(const char*), Smpte_St0337_Adm_format_type[format_type]);
+                    if (Stream_Bits>16)
+                        Skip_S1(Stream_Bits-16,                 "reserved");
+                }
+                if (assemble_flag)
+                {
+                    Element_Begin1("assemble_info");
+                    Skip_S2(2,                                  "reserved");
+                    Get_S1 (6, Track_ID,                        "Track_ID");
+                    Get_S1 (6, track_numbers,                   "track_numbers");
+                    Get_S1 (2, in_timeline_flag,                "in_timeline_flag"); Param_Info1(Smpte_St0337_Adm_multiple_chunk_flag[in_timeline_flag]);
+                    if (Stream_Bits>16)
+                        Skip_S1(Stream_Bits-16,                 "reserved");
+                    Element_End0();
+                }
+                MuxingMode=string("SMPTE ST 337 / SMPTE ST 2116");
+                if (!data_stream_number && !multiple_chunk_flag && !in_timeline_flag && format_type<=1)
+                {
+                    MuxingMode+=" Level ";
+                    MuxingMode+='A';
+                    if (format_type==1)
+                        MuxingMode+='X';
+                    if (track_numbers<10)
+                        MuxingMode+='1'+track_numbers;
+                    else
+                    {
+                        MuxingMode+='1';
+                        MuxingMode+='0'-10+track_numbers;
+                    }
+                }
+                if (Parser || data_stream_number || multiple_chunk_flag || in_timeline_flag || format_type>1 || Track_ID || track_numbers)
+                {
+                    Skip_BS(Data_BS_Remain(),                   "Data (Unsupported)");
+                }
+                else if (format_type==1)
+                {
+                    int8u* Compressed=new int8u[Data_BS_Remain()/8];
+                    size_t Compressed_Offset=0;
+                    while (Data_BS_Remain())
+                    {
+                        int64u Data;
+                        Get_S6(Stream_Bits*2, Data, "Data");
+                        for (int8u i=0; i<Stream_Bits/4; i++)
+                        {
+                            Compressed[Compressed_Offset++]=(int8u)(Data>>((Stream_Bits/4-i-1)*8));
+                        }
+                    }
+                    BS_End();
+
+                    // Adapting
+                    const int8u* Save_Buffer=Buffer;
+                    size_t Save_Buffer_Offset=Buffer_Offset;
+                    size_t Save_Buffer_Size=Buffer_Size;
+                    int64u Save_Element_Size=Element_Size;
+                    Buffer=Compressed;
+                    Buffer_Offset=0;
+                    Buffer_Size=Compressed_Offset;
+                    Element_Offset=0;
+                    Element_Size=Buffer_Size;
+
+                    //Uncompress init
+                    z_stream strm;
+                    strm.next_in=(Bytef*)Compressed;;
+                    strm.avail_in=Compressed_Offset;
+                    strm.next_out=NULL;
+                    strm.avail_out=0;
+                    strm.total_out=0;
+                    strm.zalloc=Z_NULL;
+                    strm.zfree=Z_NULL;
+                    inflateInit2(&strm, 15+16); // 15 + 16 are magic values for gzip
+
+                    //Prepare out
+                    strm.avail_out=0x10000; //Blocks of 64 KiB, arbitrary chosen, as a begin
+                    strm.next_out=(Bytef*)new Bytef[strm.avail_out];
+
+                    //Parse compressed data, with handling of the case the output buffer is not big enough
+                    for (;;)
+                    {
+                        //inflate
+                        int inflate_Result=inflate(&strm, Z_NO_FLUSH);
+                        if (inflate_Result<0)
+                            break;
+
+                        //Check if we need to stop
+                        if (strm.avail_out || inflate_Result)
+                            break;
+
+                        //Need to increase buffer
+                        size_t UncompressedData_NewMaxSize=strm.total_out*4;
+                        int8u* UncompressedData_New=new int8u[UncompressedData_NewMaxSize];
+                        memcpy(UncompressedData_New, strm.next_out-strm.total_out, strm.total_out);
+                        delete[](strm.next_out - strm.total_out); strm.next_out=UncompressedData_New;
+                        strm.next_out=strm.next_out+strm.total_out;
+                        strm.avail_out=UncompressedData_NewMaxSize-strm.total_out;
+                    }
+                    UncompressedData=strm.next_out-strm.total_out;
+                    UncompressedData_Size=strm.total_out;
+                    inflateEnd(&strm);
+                    // Adapting
+                    Buffer=Save_Buffer;
+                    Buffer_Offset=Save_Buffer_Offset;
+                    Buffer_Size=Save_Buffer_Size;
+                    Element_Offset=Save_Element_Size;
+                    Element_Size=Save_Element_Size;
+                }
+                Element_End0();
+            }
+        }
         BS_End();
     Element_End0();
 
@@ -1291,6 +1450,10 @@ void File_SmpteSt0337::Data_Parse()
                         }
                         #endif //defined(MEDIAINFO_AAC_YES)
                         break;
+            case 24 :   // AC-4
+                        Parser=new File_Ac4();
+                        ((File_Ac4*)Parser)->Frame_Count_Valid=1;
+                        break;
             case 28 :   // Dolby E
                         #if defined(MEDIAINFO_DOLBYE_YES)
                         Parser=new File_DolbyE();
@@ -1303,6 +1466,38 @@ void File_SmpteSt0337::Data_Parse()
                             Parser->Fill(Stream_Audio, 0, Audio_Format, "DDE");
                         }
                         #endif
+                        break;
+            case 32+1 : // ADM
+                        #if defined(MEDIAINFO_ADM_YES)
+                        {
+                        if (UncompressedData || Element_Offset<Element_Size)
+                        {
+                            Parser=new File_Adm();
+                            ((File_Adm*)Parser)->MuxingMode=MuxingMode;
+                        }
+                        else
+                        {
+                            //Unsupported features are present
+                            Parser=new File_Unknown();
+                            Open_Buffer_Init(Parser);
+                            Parser->Accept();
+                            Parser->Stream_Prepare(Stream_Audio);
+                            Parser->Fill(Stream_Audio, 0, "Metadata_Format", "ADM");
+                            Parser->Fill(Stream_Audio, 0, "Metadata_MuxingMode", MuxingMode);
+                            Parser->Finish();
+                        }
+                        #else
+                        {
+                            //Filling
+                            Parser=new File_Unknown();
+                            Open_Buffer_Init(Parser);
+                            Parser->Accept();
+                            Parser->Stream_Prepare(Stream_Audio);
+                            Parser->Fill(Stream_Audio, 0, "Metadata_Format", "ADM");
+                            Parser->Finish();
+                        }
+                        #endif
+                        }
                         break;
             default : ;
         }
@@ -1328,7 +1523,7 @@ void File_SmpteSt0337::Data_Parse()
             int64u Demux_Element_Offset=Element_Offset;
             Element_Offset=0;
 
-            if (Container_Bits==20)
+            if (BitDepth==20)
             {
                 //We must pad to 24 bits
                 int8u*          Info2=new int8u[(size_t)Element_Size*6/5];
@@ -1362,7 +1557,7 @@ void File_SmpteSt0337::Data_Parse()
             Element_Offset=Demux_Element_Offset;
         }
         else
-            Demux(Buffer+Buffer_Offset+Container_Bits/2, (size_t)(Element_Size-Container_Bits/2), ContentType_MainStream);
+            Demux(Buffer+Buffer_Offset+BitDepth/2, (size_t)(Element_Size-BitDepth/2), ContentType_MainStream);
 
         if (Save_Buffer)
         {
@@ -1385,14 +1580,24 @@ void File_SmpteSt0337::Data_Parse()
             case 28 :
                         ((File_DolbyE*)Parser)->GuardBand_Before=GuardBand_Before;
                         ((File_DolbyE*)Parser)->GuardBand_Before*=Stream_Bits;
-                        ((File_DolbyE*)Parser)->GuardBand_Before/=Container_Bits;
+                        ((File_DolbyE*)Parser)->GuardBand_Before/=BitDepth;
                         break;
             default : ;
         }
         #endif
 
         Parser->FrameInfo=FrameInfo;
-        Open_Buffer_Continue(Parser, Buffer+Buffer_Offset+(size_t)Element_Offset, (size_t)(Element_Size-Element_Offset));
+        if (UncompressedData)
+        {
+            Open_Buffer_Continue(Parser, UncompressedData, UncompressedData_Size);
+            delete[] UncompressedData;
+        }
+        else            
+        {
+            int64u Element_Size_Temp=Element_Size-Padding/8;
+            if (Element_Offset<Element_Size_Temp)
+                Open_Buffer_Continue(Parser, Buffer+Buffer_Offset+(size_t)Element_Offset, (size_t)(Element_Size_Temp-Element_Offset));
+        }
         Element_Offset=Element_Size;
         #if MEDIAINFO_DEMUX
             FrameInfo.DUR=Parser->FrameInfo.DUR;
@@ -1415,7 +1620,7 @@ void File_SmpteSt0337::Data_Parse()
         {
             case 28 :
                         GuardBand_After=((File_DolbyE*)Parser)->GuardBand_After;
-                        GuardBand_After*=Container_Bits;
+                        GuardBand_After*=BitDepth;
                         GuardBand_After/=Stream_Bits;
                         break;
             default : ;
@@ -1445,7 +1650,10 @@ void File_SmpteSt0337::Data_Parse()
         if (Frame_Count_NotParsedIncluded!=(int64u)-1)
             Frame_Count_NotParsedIncluded++;
 
-        if (Parser==NULL || (Frame_Count>=2 && Parser->Status[IsFilled]))
+        int64u Frame_Count_Valid=1+(File_Offset+Buffer_Size<File_Size);
+        if (!Status[IsAccepted] && Frame_Count>=Frame_Count_Valid && (!Parser || Parser->Status[IsAccepted]))
+            Accept("SMPTE ST 337");
+        if (!Status[IsFilled] && Frame_Count>=2 && (!Parser || Parser->Status[IsFilled]))
         {
             Fill("SMPTE ST 337");
             if (!IsSub && Config->ParseSpeed<1.0)
@@ -1454,7 +1662,7 @@ void File_SmpteSt0337::Data_Parse()
                 Finish();
             }
         }
-        if (Parser==NULL || (Frame_Count>=2 && Parser->Status[IsFinished]))
+        if (!Status[IsFinished] && Frame_Count>=2 && (!Parser || Parser->Status[IsFinished]))
             Finish("SMPTE ST 337");
     FILLING_END();
 

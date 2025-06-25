@@ -88,6 +88,7 @@ void File__Tags_Helper::Streams_Fill()
     {
         if (Parser_Streams_Fill[Pos] && Parser_Streams_Fill[Pos]->Status[File__Analyze::IsAccepted])
         {
+            auto& MI = *Parser_Streams_Fill[Pos];
             #ifndef MEDIAINFO_ID3V2_YES
                 const bool Priority=false;
             #else
@@ -95,8 +96,13 @@ void File__Tags_Helper::Streams_Fill()
             #endif
 
             Parser_Streams_Fill[Pos]->Read_Buffer_Finalize();
-            Base->Merge(*(Parser_Streams_Fill[Pos]), Stream_General, 0, 0, Priority);
-            Base->Merge(*(Parser_Streams_Fill[Pos]), Stream_Audio  , 0, 0, Priority);
+            Base->Merge(MI, Stream_General, 0, 0, Priority);
+            Base->Merge(MI, Stream_Audio  , 0, 0, Priority);
+            auto ImageCount = MI.Count_Get(Stream_Image);
+            for (size_t i = 0; i < ImageCount; ++i) {
+                Base->Stream_Prepare(Stream_Image);
+                Base->Merge(MI, Stream_Image, i, Base->StreamPos_Last);
+            }
         }
         delete Parser_Streams_Fill[Pos]; //Parser_Streams_Fill[Pos]=NULL;
     }
@@ -357,6 +363,7 @@ bool File__Tags_Helper::Synched_Test()
         {
             if (!Parser_Buffer_Size)
             {
+                Base->Element_End0();
                 delete Parser; Parser=NULL;
                 return false; //Probably stuck in a loop, exit
             }
