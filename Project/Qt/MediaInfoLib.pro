@@ -14,10 +14,11 @@ INCLUDEPATH += \
         ../../Source/ThirdParty/sha1-gladman \
         ../../Source/ThirdParty/sha2-gladman \
         ../../Source/ThirdParty/hmac-gladman \
+        ../../Source/ThirdParty \
         ../../../ZenLib/Source
 
 # Note: UNICODE is a must
-QMAKE_CXXFLAGS +=  -D_UNICODE -DMEDIAINFO_LIBMMS_NO -DMEDIAINFO_LIBCURL_NO -DMEDIAINFO_GRAPHVIZ_NO
+QMAKE_CXXFLAGS +=  -D_UNICODE -DMEDIAINFO_LIBMMS_NO -DMEDIAINFO_LIBCURL_NO -DMEDIAINFO_GRAPHVIZ_NO -FMT_UNICODE=0
 
 # surpressing way too many warnings here, with a heavy sigh
 # these should be looked at one group at a time
@@ -129,6 +130,7 @@ HEADERS += \
         ../../Source/MediaInfo/Image/File_Exr.h \
         ../../Source/MediaInfo/Image/File_Gif.h \
         ../../Source/MediaInfo/Image/File_Ico.h \
+        ../../Source/MediaInfo/Image/File_GainMap.h \
         ../../Source/MediaInfo/Image/File_Jpeg.h \
         ../../Source/MediaInfo/Image/File_Pcx.h \
         ../../Source/MediaInfo/Image/File_Png.h \
@@ -372,6 +374,7 @@ SOURCES += \
         ../../Source/MediaInfo/Image/File_Exr.cpp \
         ../../Source/MediaInfo/Image/File_Gif.cpp \
         ../../Source/MediaInfo/Image/File_Ico.cpp \
+        ../../Source/MediaInfo/Image/File_GainMap.cpp \
         ../../Source/MediaInfo/Image/File_Jpeg.cpp \
         ../../Source/MediaInfo/Image/File_Pcx.cpp \
         ../../Source/MediaInfo/Image/File_Png.cpp \
@@ -525,6 +528,7 @@ SOURCES += \
         ../../Source/ThirdParty/aes-gladman/aescrypt.c \
         ../../Source/ThirdParty/aes-gladman/aeskey.c \
         ../../Source/ThirdParty/aes-gladman/aestab.c \
+        ../../Source/ThirdParty/fmt/format.cc \
         ../../Source/ThirdParty/hmac-gladman/hmac.c \
         ../../Source/ThirdParty/md5/md5.c \
         ../../Source/ThirdParty/sha1-gladman/sha1.c \

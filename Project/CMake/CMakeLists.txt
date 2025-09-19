@@ -5,7 +5,7 @@ project(MediaInfoLib)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/modules")
 
 set(MediaInfoLib_MAJOR_VERSION 25)
-set(MediaInfoLib_MINOR_VERSION 04)
+set(MediaInfoLib_MINOR_VERSION 07)
 set(MediaInfoLib_PATCH_VERSION 0)
 set(MediaInfoLib_VERSION ${MediaInfoLib_MAJOR_VERSION}.${MediaInfoLib_MINOR_VERSION})
 
@@ -95,6 +95,7 @@ include_directories(${MediaInfoLib_SOURCES_PATH}/ThirdParty/aes-gladman/)
 include_directories(${MediaInfoLib_SOURCES_PATH}/ThirdParty/sha1-gladman/)
 include_directories(${MediaInfoLib_SOURCES_PATH}/ThirdParty/sha2-gladman/)
 include_directories(${MediaInfoLib_SOURCES_PATH}/ThirdParty/hmac-gladman/)
+include_directories(${MediaInfoLib_SOURCES_PATH}/ThirdParty/)
 include_directories(${ZLIB_INCLUDE_DIRS})
 
 set(MediaInfoLib_PUBLIC_HDRS
@@ -117,6 +118,7 @@ set(MediaInfoLib_SRCS
   ${MediaInfoLib_SOURCES_PATH}/ThirdParty/sha2-gladman/sha2.c
   ${MediaInfoLib_SOURCES_PATH}/ThirdParty/hmac-gladman/hmac.c
   ${MediaInfoLib_SOURCES_PATH}/ThirdParty/tfsxml/tfsxml.c
+  ${MediaInfoLib_SOURCES_PATH}/ThirdParty/fmt/format.cc
   ${MediaInfoLib_SOURCES_PATH}/MediaInfo/File__Analyze.cpp
   ${MediaInfoLib_SOURCES_PATH}/MediaInfo/File__Analyze_Buffer.cpp
   ${MediaInfoLib_SOURCES_PATH}/MediaInfo/File__Analyze_Buffer_MinimizeSize.cpp
@@ -230,6 +232,7 @@ set(MediaInfoLib_SRCS
   ${MediaInfoLib_SOURCES_PATH}/MediaInfo/Image/File_Exr.cpp
   ${MediaInfoLib_SOURCES_PATH}/MediaInfo/Image/File_Gif.cpp
   ${MediaInfoLib_SOURCES_PATH}/MediaInfo/Image/File_Ico.cpp
+  ${MediaInfoLib_SOURCES_PATH}/MediaInfo/Image/File_GainMap.cpp
   ${MediaInfoLib_SOURCES_PATH}/MediaInfo/Image/File_Jpeg.cpp
   ${MediaInfoLib_SOURCES_PATH}/MediaInfo/Image/File_Pcx.cpp
   ${MediaInfoLib_SOURCES_PATH}/MediaInfo/Image/File_Png.cpp
@@ -385,6 +388,7 @@ endif()
 
 # disable some features. Maybe it should be enabled.
 target_compile_definitions(mediainfo PRIVATE MEDIAINFO_LIBMMS_NO)
+target_compile_definitions(mediainfo PRIVATE FMT_UNICODE=0)
 if(NOT CURL_FOUND)
   target_compile_definitions(mediainfo PRIVATE MEDIAINFO_LIBCURL_NO)
 else()

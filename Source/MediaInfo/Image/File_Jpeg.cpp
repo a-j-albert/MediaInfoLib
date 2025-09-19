@@ -34,6 +34,7 @@
 
 //---------------------------------------------------------------------------
 #include "MediaInfo/Image/File_Jpeg.h"
+#include "MediaInfo/Image/File_GainMap.h"
 #if defined(MEDIAINFO_PSD_YES)
     #include "MediaInfo/Image/File_Psd.h"
 #endif
@@ -1397,7 +1398,7 @@ void File_Jpeg::SOS()
             continue;
         }
         Item.second.IsParsed = true;
-        Data_Size -= File_Size - Item.first;
+        Data_Size -= (IsSub ? Buffer_Size : File_Size) - Item.first;
         Streams_Finish_PerImage();
         Streams_Accept_PerImage(Item.second);
         for (auto& Item2 : Seek_Items) {
@@ -1609,6 +1610,8 @@ void File_Jpeg::APP1_XMP()
     File_Xmp MI;
     gc_items GContainerItems;
     MI.GContainerItems = &GContainerItems;
+    GainMap_metadata_Adobe.reset(new gm_data());
+    MI.GainMapData = static_cast<gm_data*>(GainMap_metadata_Adobe.get());
     Open_Buffer_Init(&MI);
     auto Element_Offset_Sav = Element_Offset;
     Open_Buffer_Continue(&MI);
@@ -1728,6 +1731,12 @@ void File_Jpeg::APP2()
                 return;
             }
             break;
+        case 28:
+            if (!strncmp((const char*)Buffer + Buffer_Offset, "urn:iso:std:iso:ts:21496:-1", 28)) {
+                APP2_ISO21496_1();
+                return;
+            }
+            break;
         }
         Element_Info1(string((const char*)Buffer + Buffer_Offset, Size - 1));
     }
@@ -1770,6 +1779,20 @@ void File_Jpeg::APP2_ICC_PROFILE()
 }
 
 //---------------------------------------------------------------------------
+void File_Jpeg::APP2_ISO21496_1()
+{
+    Element_Info1("ISO 21496-1 Gain map metadata for image conversion");
+
+    //Parsing
+    File_GainMap MI;
+    GainMap_metadata_ISO.reset(new GainMap_metadata());
+    MI.output = static_cast<GainMap_metadata*>(GainMap_metadata_ISO.get());
+    Open_Buffer_Init(&MI);
+    Open_Buffer_Continue(&MI);
+    Open_Buffer_Finalize(&MI);
+}
+
+//---------------------------------------------------------------------------
 void File_Jpeg::APP2_MPF()
 {
     Element_Info1("Multi-Picture Format");
@@ -1791,10 +1814,10 @@ void File_Jpeg::APP2_MPF()
         size_t Pos = (size_t)-1;
         for (const auto& Entry : MPEntries) {
             ++Pos;
-            if (Entry.DependentImg1EntryNo && !DependsOn[Entry.DependentImg1EntryNo - 1]) {
+            if (Entry.DependentImg1EntryNo && Entry.DependentImg1EntryNo <= DependsOn .size() && !DependsOn[Entry.DependentImg1EntryNo - 1]) {
                 DependsOn[Entry.DependentImg1EntryNo - 1] = Entry.ImgOffset ? (Offset + Entry.ImgOffset) : 0;
             }
-            if (Entry.DependentImg2EntryNo && !DependsOn[Entry.DependentImg2EntryNo - 1]) {
+            if (Entry.DependentImg2EntryNo && Entry.DependentImg2EntryNo <= DependsOn.size() && !DependsOn[Entry.DependentImg2EntryNo - 1]) {
                 DependsOn[Entry.DependentImg2EntryNo - 1] = Entry.ImgOffset ? (Offset + Entry.ImgOffset) : 0;
             }
             if (!Entry.ImgOffset) {
