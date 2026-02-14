@@ -13,6 +13,7 @@
 #include "MediaInfo/File__Analyze.h"
 #include "MediaInfo/File__Duplicate.h"
 #include <cmath>
+#include <set>
 //---------------------------------------------------------------------------
 
 namespace MediaInfoLib
@@ -27,6 +28,7 @@ class File_Av1 : public File__Analyze
 public :
     //In
     int64u Frame_Count_Valid;
+    bool IsAnnexB = {};
 
     //Constructor/Destructor
     File_Av1();
@@ -41,11 +43,9 @@ private :
     void Streams_Fill();
     void Streams_Finish();
 
-    //Buffer - File header
-    bool FileHeader_Begin();
-
     //Buffer - Global
     void Read_Buffer_OutOfBand();
+    void Read_Buffer_Init();
 
     //Buffer - Per element
     void Header_Parse();
@@ -56,6 +56,7 @@ private :
     void sequence_header();
     void temporal_delimiter();
     void frame_header();
+    void frame_header_uncompressed_header();
     void tile_group();
     void metadata();
     void metadata_hdr_cll();
@@ -76,8 +77,10 @@ private :
     //Temp
     Ztring  maximum_content_light_level;
     Ztring  maximum_frame_average_light_level;
-    bool  sequence_header_Parsed;
-    bool  SeenFrameHeader;
+    bool  sequence_header_Parsed{};
+    bool  SeenFrameHeader{};
+    bool  reduced_still_picture_header{};
+    bool  show_existing_frame{};
     string GOP;
     enum hdr_format
     {
@@ -87,6 +90,7 @@ private :
     };
     typedef std::map<video, Ztring[HdrFormat_Max]> hdr;
     hdr HDR;
+    std::set<int8u> scalability_structure_seen;
 
     //Helpers
     std::string GOP_Detect(std::string PictureTypes);
